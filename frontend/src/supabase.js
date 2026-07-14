@@ -1,0 +1,170 @@
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = "https://meufjnmmucsvmtlnoazg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldWZqbm1tdWNzdm10bG5vYXpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMjQ1NDQsImV4cCI6MjA5OTYwMDU0NH0.4ginPuHoWlXHXDb_RJOzQT2RiMWKK9k5l0y2uoj9FIY";
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
+
+// ─── Auth Helpers ──────────────────────────────────────────────────────────────
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function signOut() {
+  await supabase.auth.signOut();
+}
+
+export async function getSession() {
+  const { data } = await supabase.auth.getSession();
+  return data.session;
+}
+
+// ─── Profile Helpers ───────────────────────────────────────────────────────────
+export async function getProfile(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function getAllProfiles() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("vorname");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function updateProfile(userId, updates) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("id", userId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub }) {
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { vorname, nachname, role: role || "trainer" },
+    },
+  });
+  if (authError) throw new Error(authError.message);
+  const userId = authData.user?.id;
+  if (!userId) throw new Error("User-ID nicht erhalten");
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert({
+      id: userId, email, role: role || "trainer",
+      vorname, nachname, position: position || "Trainer",
+      color: color || "#2563EB",
+      urlaubstage: urlaubstage ?? 30,
+      ueberstunden: ueberstunden ?? 0,
+      resturlaub: resturlaub ?? 0,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function deleteUser(userId) {
+  const { error } = await supabase.from("profiles").delete().eq("id", userId);
+  if (error) throw new Error(error.message);
+}
+
+// ─── Entry Helpers ─────────────────────────────────────────────────────────────
+export async function getAllEntries() {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*, profiles(vorname, nachname, color, email)")
+    .order("von");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function getMyEntries(userId) {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("von");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function getConfirmedEntries() {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*, profiles(vorname, nachname, color)")
+    .eq("status", "confirmed")
+    .order("von");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createEntry({ user_id, type, von, bis, note = "" }) {
+  const { data, error } = await supabase
+    .from("entries")
+    .insert({ user_id, type, von, bis, note, status: "pending" })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function updateEntry(id, updates) {
+  const { data, error } = await supabase
+    .from("entries")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function setEntryStatus(id, status) {
+  const { data, error } = await supabase
+    .from("entries")
+    .update({ status })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function deleteEntry(id) {
+  const { error } = await supabase.from("entries").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function checkConflicts(userId, von, bis) {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*, profiles(vorname, nachname)")
+    .eq("status", "confirmed")
+    .neq("user_id", userId)
+    .lte("von", bis)
+    .gte("bis", von);
+  if (error) throw new Error(error.message);
+  return data;
+}
