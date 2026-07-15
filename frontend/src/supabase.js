@@ -62,6 +62,13 @@ export async function createUser({ email, password, vorname, nachname, role, pos
   if (authError) throw new Error(authError.message);
   const userId = authData.user?.id;
   if (!userId) throw new Error("User-ID nicht erhalten");
+
+  // E-Mail sofort bestätigen damit User sich direkt einloggen kann
+  try {
+    await supabase.rpc("admin_confirm_user", { target_user_id: userId });
+  } catch (e) {
+    console.warn("Auto-confirm:", e.message);
+  }
   const { data, error } = await supabase.from("profiles").upsert({
     id: userId, email, role: role || "trainer",
     vorname, nachname, position: position || "Trainer",
