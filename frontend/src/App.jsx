@@ -729,18 +729,22 @@ function ProfView({user,onSave,onChangePw}){
           </div>
         </div>
 
-        {/* ── Stammdaten: je Zeile 2 Felder ── */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div><label style={S.lbl}>Vorname</label>
-            <input style={S.inp} value={form.vorname} onChange={e=>setForm(f=>({...f,vorname:e.target.value}))}/>
+        {/* ── Stammdaten ── */}
+        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
+          {/* Zeile 1: Vorname + Nachname */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div><label style={S.lbl}>Vorname</label>
+              <input style={S.inp} value={form.vorname} onChange={e=>setForm(f=>({...f,vorname:e.target.value}))}/>
+            </div>
+            <div><label style={S.lbl}>Nachname</label>
+              <input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/>
+            </div>
           </div>
-          <div><label style={S.lbl}>Nachname</label>
-            <input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/>
-          </div>
-          {/* Geburtsdatum volle Breite damit Datumsfeld nicht überläuft */}
-          <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={S.lbl}>Geburtsdatum</label>
-              <input style={S.inp} type="date" value={form.geburtsdatum}
+          {/* Zeile 2: Geburtsdatum (schmal, fixe Breite) + Position */}
+          <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:12}}>
+            <div>
+              <label style={S.lbl}>Geburtsdatum</label>
+              <input style={{...S.inp,padding:"8px 8px"}} type="date" value={form.geburtsdatum}
                 onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/>
             </div>
             <div><label style={S.lbl}>Position</label>
@@ -748,23 +752,20 @@ function ProfView({user,onSave,onChangePw}){
                 onChange={e=>setForm(f=>({...f,position:e.target.value}))}/>
             </div>
           </div>
-          <div><label style={S.lbl}>Urlaubstage / Jahr</label>
-            <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
-              value={form.urlaubstage}
-              onChange={e=>{
-                const v=e.target.value.replace(/[^0-9]/g,"");
-                setForm(f=>({...f,urlaubstage:v}));
-              }}
-              onFocus={e=>e.target.select()}/>
-          </div>
-          <div><label style={S.lbl}>Überstunden (Tage)</label>
-            <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
-              value={form.ueberstunden}
-              onChange={e=>{
-                const v=e.target.value.replace(/[^0-9]/g,"");
-                setForm(f=>({...f,ueberstunden:v}));
-              }}
-              onFocus={e=>e.target.select()}/>
+          {/* Zeile 3: Urlaubstage + Überstunden */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div><label style={S.lbl}>Urlaubstage / Jahr</label>
+              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+                value={form.urlaubstage}
+                onChange={e=>setForm(f=>({...f,urlaubstage:e.target.value.replace(/[^0-9]/g,"")}))}
+                onFocus={e=>e.target.select()}/>
+            </div>
+            <div><label style={S.lbl}>Überstunden (Tage)</label>
+              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+                value={form.ueberstunden}
+                onChange={e=>setForm(f=>({...f,ueberstunden:e.target.value.replace(/[^0-9]/g,"")}))}
+                onFocus={e=>e.target.select()}/>
+            </div>
           </div>
         </div>
 
@@ -848,11 +849,15 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
 
           {/* ── Stammdaten ── */}
           <div style={{fontSize:11,fontWeight:700,color:"#6a9e2f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-            <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
-            <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
-            <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
-            <div><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
+              <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:12}}>
+              <div><label style={S.lbl}>Geburtsdatum</label><input style={{...S.inp,padding:"8px 6px"}} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
+              <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
+            </div>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={f.urlaubstage}
