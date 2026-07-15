@@ -232,7 +232,18 @@ export default function App(){
     if(error)throw new Error(error.message);
   }
 
-  function handlePrint(mode){setPrintMode(mode);setTimeout(()=>{window.print();setTimeout(()=>setPrintMode(null),600);},300);}
+  function handlePrint(mode){
+    setPrintMode(mode);
+    // Warten bis React den PrintKal/PrintList gerendert hat
+    setTimeout(()=>{
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          window.print();
+          setTimeout(()=>setPrintMode(null),1000);
+        });
+      });
+    },400);
+  }
 
   // Kalender: bestätigte + eigene pending
   function calEntries(){
@@ -374,7 +385,7 @@ export default function App(){
 
       {/* MODALS */}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)} onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);notify("Gespeichert.");}} onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id} onSave={async d=>{await handleCreateEntry({...d,user_id:modal.data.userId});setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
@@ -673,7 +684,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
     return(
       <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f8faf0"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f8faf0"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Beantragt am","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(e=>(
               <tr key={e.id} style={{borderBottom:"1px solid #edf5ee"}}>
@@ -681,7 +692,10 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
                 <td style={S.td}><span style={{fontSize:11,background:ca(e.pColor,0.2),color:e.pColor,borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
-                <td style={{...S.td,fontWeight:600,color:"#94a3b8"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontSize:11,color:"#8aaa5f"}}>
+                  {e.created_at?new Date(e.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
+                </td>
                 <td style={S.td}>
                     <div style={{display:"flex",flexDirection:"column",gap:3}}>
                       <StBadge status={e.status}/>
@@ -758,7 +772,21 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete}){
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <h2 style={S.pgT}>Mein Urlaub</h2>
-        <button style={{...S.addBtn,background:user?.color||"#2563EB"}} onClick={onAdd}>+ Urlaub beantragen</button>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{
+            const w=window.open("","_blank","width=900,height=700");
+            const sorted=[...allEntries].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
+            const urlT=eDays(allEntries,"urlaub"),rstT=eDays(allEntries,"resturlaub");
+            const rem=(user?.urlaubstage||30)-(urlT+rstT);
+            const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+            const fde=s=>s?new Date(s).toLocaleDateString("de-DE"):"";
+            w.document.write("<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'/><title>Urlaubsübersicht</title><style>@page{size:A4 portrait;margin:18mm 16mm;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;font-size:11px;color:#222;}.logo{font-size:15px;font-weight:bold;color:#5a8a1f;margin-bottom:3px;}.sub{font-size:9px;color:#666;margin-bottom:14px;}h1{font-size:14px;margin-bottom:4px;}.meta{font-size:10px;color:#555;margin-bottom:14px;}.sum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:#f5f8ec;border:1px solid #d5e8a0;border-radius:6px;padding:10px 14px;margin-bottom:20px;}.sv{font-size:18px;font-weight:bold;color:#5a8a1f;text-align:center;}.sl{font-size:9px;color:#666;text-align:center;}table{width:100%;border-collapse:collapse;margin-bottom:24px;}th{background:#5a8a1f;color:#fff;padding:6px 8px;text-align:left;font-size:10px;}td{padding:5px 8px;border-bottom:1px solid #ddd;font-size:10px;}tr:nth-child(even) td{background:#f9fdf5;}.ok{background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:bold;}.pend{background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:bold;}.sig{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:40px;}.sb{border-top:1.5px solid #333;padding-top:6px;}.sl2{font-size:9px;color:#666;}.sn{font-size:10px;font-weight:bold;margin-top:3px;}.foot{margin-top:16px;font-size:9px;color:#aaa;text-align:center;border-top:1px solid #ddd;padding-top:8px;}</style></head><body><div class='logo'>Therapie- & Pflegezentrum Westlausitz</div><div class='sub'>Urlaubsplaner · Individuelles Funktionstraining</div><h1>Urlaubsübersicht "+new Date().getFullYear()+"</h1><div class='meta'>Mitarbeiter: <strong>"+user?.vorname+" "+user?.nachname+"</strong> &nbsp;|&nbsp; Position: "+(user?.position||"Trainer")+" &nbsp;|&nbsp; Erstellt am: "+new Date().toLocaleDateString("de-DE")+"</div><div class='sum'><div><div class='sv'>"+(user?.urlaubstage||30)+"</div><div class='sl'>Urlaubstage gesamt</div></div><div><div class='sv'>"+(urlT+rstT)+"</div><div class='sl'>Genommen / Beantragt</div></div><div><div class='sv'>"+rem+"</div><div class='sl'>Verbleibend</div></div></div><table><thead><tr><th>Typ</th><th>Von</th><th>Bis</th><th>Werktage</th><th>Beantragt am</th><th>Status</th></tr></thead><tbody>"+sorted.map(e=>"<tr><td>"+TL[e.type]+"</td><td>"+fde(e.von)+"</td><td>"+fde(e.bis)+"</td><td style='text-align:center;font-weight:bold'>"+countWD(e.von,e.bis)+"</td><td>"+(e.created_at?new Date(e.created_at).toLocaleDateString("de-DE"):"—")+"</td><td><span class='"+(e.status==="confirmed"?"ok":"pend")+"'>"+(e.status==="confirmed"?"✓ Bestätigt":"⏳ Ausstehend")+"</span></td></tr>").join("")+"</tbody></table><div class='sig'><div class='sb'><div style='height:44px'></div><div class='sl2'>Ort, Datum &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Unterschrift Mitarbeiter</div><div class='sn'>"+user?.vorname+" "+user?.nachname+"</div><div class='sl2' style='margin-top:3px'>Ich bestätige die Richtigkeit meiner Urlaubsbeantragung.</div></div><div class='sb'><div style='height:44px'></div><div class='sl2'>Ort, Datum &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Unterschrift Praxisleitung</div><div class='sn'>Thomas Keilig</div><div class='sl2' style='margin-top:3px'>Genehmigt durch die Praxisleitung.</div></div></div><div class='foot'>Therapie- & Pflegezentrum Westlausitz · Erstellt am "+new Date().toLocaleDateString("de-DE")+"</div><script>window.onload=()=>window.print();</script></body></html>");
+            w.document.close();
+          }} style={{background:"#475569",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            🖨 PDF / Drucken
+          </button>
+          <button style={{...S.addBtn,background:user?.color||"#5a8a1f"}} onClick={onAdd}>+ Urlaub beantragen</button>
+        </div>
       </div>
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${ueU}/${user.ueberstunden}`,false]]:[])].map(([ic,lb,vl,warn])=>(
@@ -779,7 +807,10 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete}){
                 <td style={S.td}><span style={{fontSize:11,background:ca(user?.color||"#2563EB",0.2),color:user?.color||"#2563EB",borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
-                <td style={{...S.td,fontWeight:600,color:"#94a3b8"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontSize:11,color:"#8aaa5f"}}>
+                  {e.created_at?new Date(e.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
+                </td>
                 <td style={S.td}>
                     <div style={{display:"flex",flexDirection:"column",gap:3}}>
                       <StBadge status={e.status}/>
@@ -1076,7 +1107,7 @@ function CopyLoginButton({email, password, vorname}){
 }
 
 // ─── User Modal ───────────────────────────────────────────────────────────────
-function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
+function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]}){
   const[f,setF]=useState({
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"trainer",
@@ -1201,17 +1232,26 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
-              {PRESET_COLORS.map(c=>(
-                <div key={c} onClick={()=>setF(p=>({...p,color:c}))}
-                  style={{width:32,height:32,borderRadius:6,background:c,cursor:"pointer",
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    boxShadow:f.color===c?"0 0 0 3px #2d3a2e, 0 0 0 5px "+c:"0 1px 3px rgba(0,0,0,0.2)",
-                    transform:f.color===c?"scale(1.15)":"scale(1)",
-                    transition:"all .15s",
-                  }}>
-                  {f.color===c&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.5)"}}>✓</span>}
-                </div>
-              ))}
+              {PRESET_COLORS.map(c=>{
+                const isUsed=usedColors.includes(c)&&f.color!==c;
+                return(
+                  <div key={c}
+                    onClick={()=>!isUsed&&setF(p=>({...p,color:c}))}
+                    title={isUsed?"Diese Farbe ist bereits vergeben":""}
+                    style={{width:32,height:32,borderRadius:6,background:c,
+                      cursor:isUsed?"not-allowed":"pointer",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      opacity:isUsed?0.3:1,
+                      boxShadow:f.color===c?"0 0 0 3px #2d3a2e, 0 0 0 5px "+c:"0 1px 3px rgba(0,0,0,0.2)",
+                      transform:f.color===c?"scale(1.15)":"scale(1)",
+                      transition:"all .15s",
+                      position:"relative",
+                    }}>
+                    {f.color===c&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.5)"}}>✓</span>}
+                    {isUsed&&<span style={{color:"#fff",fontSize:14,fontWeight:900}}>✗</span>}
+                  </div>
+                );
+              })}
               <div style={{position:"relative",width:32,height:32}}>
                 <input type="color" value={f.color} onChange={e=>setF(p=>({...p,color:e.target.value}))}
                   style={{width:32,height:32,border:"2px solid #d5e8a0",borderRadius:6,cursor:"pointer",padding:2}}/>
