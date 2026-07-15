@@ -885,8 +885,19 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
 
         <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {PRESET_COLORS.map(c=><div key={c} onClick={()=>updateForm("color",c)} style={{width:28,height:28,borderRadius:6,background:c,cursor:"pointer",outline:form.color===c?"3px solid #2d3a2e":"none",outlineOffset:2}}/>)}
-            <input type="color" value={form.color} onChange={e=>updateForm("color",e.target.value)} style={{width:32,height:32,border:"none",borderRadius:6,cursor:"pointer"}}/>
+            {PRESET_COLORS.map(c=>(
+              <div key={c} onClick={()=>updateForm("color",c)}
+                style={{width:32,height:32,borderRadius:6,background:c,cursor:"pointer",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  boxShadow:form.color===c?"0 0 0 3px #2d3a2e, 0 0 0 5px "+c:"0 1px 3px rgba(0,0,0,0.2)",
+                  transform:form.color===c?"scale(1.15)":"scale(1)",transition:"all .15s"}}>
+                {form.color===c&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.5)"}}>✓</span>}
+              </div>
+            ))}
+            <div style={{position:"relative",width:32,height:32}}>
+              <input type="color" value={form.color} onChange={e=>updateForm("color",e.target.value)}
+                style={{width:32,height:32,border:"2px solid #d5e8a0",borderRadius:6,cursor:"pointer",padding:2}}/>
+            </div>
           </div>
         </div>
         {saved&&<div style={{padding:"8px 14px",background:"#dcfce7",color:"#15803d",borderRadius:8,fontSize:13,fontWeight:600,marginBottom:8,border:"1px solid #86efac"}}>✅ Profil erfolgreich gespeichert!</div>}
@@ -926,6 +937,10 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
   });
   // Urlaubstage automatisch berechnen wenn Einstellungsdatum geändert wird
   function handleEinstellungsdatum(val){
+    if(!val){
+      setF(p=>({...p,einstellungsdatum:""}));
+      return;
+    }
     const auto=calcUrlaubstage(val);
     setF(p=>({...p,einstellungsdatum:val,urlaubstage:String(auto)}));
   }
@@ -1024,10 +1039,31 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
           </div>
 
           {/* ── Farbe ── */}
-          <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              {PRESET_COLORS.map(c=><div key={c} onClick={()=>setF(p=>({...p,color:c}))} style={{width:26,height:26,borderRadius:5,background:c,cursor:"pointer",outline:f.color===c?"3px solid #fff":"none",outlineOffset:2}}/>)}
-              <input type="color" value={f.color} onChange={e=>setF(p=>({...p,color:e.target.value}))} style={{width:30,height:30,border:"none",borderRadius:5,cursor:"pointer"}}/>
+          <div style={{marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <label style={S.lbl}>Farbe</label>
+              <div style={{display:"flex",alignItems:"center",gap:6,background:"#f8faf0",borderRadius:8,padding:"4px 10px",border:"1px solid #d5e8a0"}}>
+                <div style={{width:18,height:18,borderRadius:4,background:f.color}}/>
+                <span style={{fontSize:12,fontWeight:600,color:"#5a6b4a"}}>{f.color}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+              {PRESET_COLORS.map(c=>(
+                <div key={c} onClick={()=>setF(p=>({...p,color:c}))}
+                  style={{width:32,height:32,borderRadius:6,background:c,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    boxShadow:f.color===c?"0 0 0 3px #2d3a2e, 0 0 0 5px "+c:"0 1px 3px rgba(0,0,0,0.2)",
+                    transform:f.color===c?"scale(1.15)":"scale(1)",
+                    transition:"all .15s",
+                  }}>
+                  {f.color===c&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.5)"}}>✓</span>}
+                </div>
+              ))}
+              <div style={{position:"relative",width:32,height:32}}>
+                <input type="color" value={f.color} onChange={e=>setF(p=>({...p,color:e.target.value}))}
+                  style={{width:32,height:32,border:"2px solid #d5e8a0",borderRadius:6,cursor:"pointer",padding:2}}/>
+                <span style={{position:"absolute",bottom:-14,left:"50%",transform:"translateX(-50%)",fontSize:9,color:"#8aaa5f",whiteSpace:"nowrap"}}>Eigene</span>
+              </div>
             </div>
           </div>
 
