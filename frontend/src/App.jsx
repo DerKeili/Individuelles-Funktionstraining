@@ -311,7 +311,7 @@ export default function App(){
         {navItems.map(([id,lbl])=>(
           <button key={id} style={{...S.navBtn,...(view===id?S.navAct:{})}} onClick={()=>handleNavClick(id)}>{lbl}</button>
         ))}
-        {isAdmin&&pendingCount>0&&<div style={S.pendBadge}>{pendingCount} ausstehend</div>}
+        {isAdmin&&pendingCount>0&&<button onClick={()=>setView("eintraege")} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
         <div style={S.legend}>
           {pwu.filter(u=>u.entries.some(e=>e.status==="confirmed")).map(u=>(
             <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
@@ -375,7 +375,7 @@ export default function App(){
       {/* MODALS */}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} onSave={async d=>{await handleCreateEntry({...d,user_id:modal.data.userId});setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id} onSave={async d=>{await handleCreateEntry({...d,user_id:modal.data.userId});setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
@@ -668,7 +668,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
     }).sort((a,b)=>a.von.localeCompare(b.von));
   const pend=rich.filter(e=>e.status==="pending");
   const rest=rich.filter(e=>e.status!=="pending");
-  function ETable({rows,showAct}){
+  function ETable({rows,showAct,allEntries=[],profiles=[],TLmap}){
     if(!rows.length)return null;
     return(
       <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
@@ -682,7 +682,37 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
                 <td style={{...S.td,fontWeight:600,color:"#94a3b8"}}>{countWD(e.von,e.bis)}</td>
-                <td style={S.td}><StBadge status={e.status}/></td>
+                <td style={S.td}>
+                    <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                      <StBadge status={e.status}/>
+                      {(()=>{
+                        // Prüfe Kollision mit anderen bestätigten Einträgen
+                        const conflicts=allEntries.filter(o=>
+                          o.id!==e.id&&
+                          o.user_id!==e.user_id&&
+                          o.status==="confirmed"&&
+                          e.von<=o.bis&&e.bis>=o.von
+                        );
+                        if(conflicts.length===0)return(
+                          <span style={{fontSize:10,color:"#15803d",fontWeight:600}}>✅ Frei</span>
+                        );
+                        return(
+                          <div style={{background:"#fff7ed",border:"1px solid #f0932b",borderRadius:6,padding:"4px 7px",marginTop:2}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#92400e",marginBottom:2}}>⚠ Kollision:</div>
+                            {conflicts.map((o,i)=>{
+                              const op=profiles.find(p=>p.id===o.user_id);
+                              return(
+                                <div key={i} style={{fontSize:10,color:"#b45309",display:"flex",alignItems:"center",gap:3}}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:op?.color||"#f0932b",flexShrink:0}}/>
+                                  <span><strong>{op?.vorname||"?"}</strong> {fmtDE(o.von)}–{fmtDE(o.bis)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </td>
                 <td style={S.td}>
                   <div style={{display:"flex",gap:4}}>
                     {showAct&&e.status==="pending"&&<>
@@ -708,8 +738,8 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
           {profiles.map(u=><button key={u.id} style={{...S.addBtn,background:u.color||"#2563EB",fontSize:11,padding:"6px 10px"}} onClick={()=>onAdd(u.id)}>+ {u.vorname}</button>)}
         </div>
       </div>
-      {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct/></>}
-      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#6a9e2f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest}/></>}
+      {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct allEntries={rich} profiles={profiles}/></>}
+      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#6a9e2f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest} allEntries={rich} profiles={profiles}/></>}
       {rich.length===0&&<div style={{color:"#475569",fontSize:14,padding:24,textAlign:"center"}}>Noch keine Einträge.</div>}
     </div>
   );
@@ -750,7 +780,37 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete}){
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
                 <td style={{...S.td,fontWeight:600,color:"#94a3b8"}}>{countWD(e.von,e.bis)}</td>
-                <td style={S.td}><StBadge status={e.status}/></td>
+                <td style={S.td}>
+                    <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                      <StBadge status={e.status}/>
+                      {(()=>{
+                        // Prüfe Kollision mit anderen bestätigten Einträgen
+                        const conflicts=allEntries.filter(o=>
+                          o.id!==e.id&&
+                          o.user_id!==e.user_id&&
+                          o.status==="confirmed"&&
+                          e.von<=o.bis&&e.bis>=o.von
+                        );
+                        if(conflicts.length===0)return(
+                          <span style={{fontSize:10,color:"#15803d",fontWeight:600}}>✅ Frei</span>
+                        );
+                        return(
+                          <div style={{background:"#fff7ed",border:"1px solid #f0932b",borderRadius:6,padding:"4px 7px",marginTop:2}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#92400e",marginBottom:2}}>⚠ Kollision:</div>
+                            {conflicts.map((o,i)=>{
+                              const op=profiles.find(p=>p.id===o.user_id);
+                              return(
+                                <div key={i} style={{fontSize:10,color:"#b45309",display:"flex",alignItems:"center",gap:3}}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:op?.color||"#f0932b",flexShrink:0}}/>
+                                  <span><strong>{op?.vorname||"?"}</strong> {fmtDE(o.von)}–{fmtDE(o.bis)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </td>
                 <td style={S.td}>{e.status!=="confirmed"&&<div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(e)}>✏️</button><button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(e.id)}>🗑</button></div>}</td>
               </tr>
             ))}
@@ -987,10 +1047,10 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
 
 
 // ─── Login-Daten Kopier-Button ────────────────────────────────────────────────
-function CopyLoginButton({email, password}){
+function CopyLoginButton({email, password, vorname}){
   const[copied,setCopied]=useState(false);
   async function copy(){
-    const text=`Hallo,\n\nhier sind deine Zugangsdaten für den Urlaubsplaner:\n\n🌐 Adresse: https://derkeili.github.io/Individuelles-Funktionstraining/\n📧 E-Mail: ${email}\n🔑 Passwort: ${password}\n\nBitte ändere dein Passwort nach dem ersten Login in deinem Profil.\n\nViele Grüße`;
+    const text=`Hallo ${vorname ? vorname+"," : ""}\n\nhier sind deine Zugangsdaten für den Urlaubsplaner (TZ Westlausitz):\n\n🌐 Adresse: https://derkeili.github.io/Individuelles-Funktionstraining/\n📧 E-Mail: ${email}\n🔑 Passwort: ${password}\n\nBitte melde dich an und ändere dein Passwort anschließend in deinem Profil.\n\nViele Grüße\nThomas Keilig`;
     try{
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -1054,7 +1114,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
     if(!f.vorname||!f.email){alert("Vorname und E-Mail sind Pflicht.");return;}
     if(!initial&&!newUserPw){alert("Passwort für neuen Mitarbeiter erforderlich.");return;}
     setBusy(true);
-    try{await onSave({...f,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,...(!initial?{password:newUserPw}:{})});}
+    try{await onSave({...f,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});}
     finally{setBusy(false);}
   }
 
@@ -1173,29 +1233,38 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
             {!initial&&(
               <div>
                 <label style={S.lbl}>Passwort *</label>
-                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
-                  <div style={{position:"relative",flex:1}}>
-                    <input style={{...S.inp,fontFamily:"monospace",letterSpacing:"0.05em",paddingRight:36}}
-                      type={showPw?"text":"password"} value={newUserPw}
-                      onChange={e=>setNewUserPw(e.target.value)}
-                      placeholder="Passwort eingeben oder generieren"/>
-                    <button onClick={()=>setShowPw(v=>!v)}
-                      style={{position:"absolute",right:8,top:8,background:"none",border:"none",color:"#8aaa5f",cursor:"pointer",fontSize:14}}>
-                      {showPw?"🙈":"👁"}
-                    </button>
-                  </div>
-                  <button onClick={()=>{const pw=generatePassword();setNewUserPw(pw);setShowPw(true);}}
-                    style={{background:"#5a8a1f",color:"#fff",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                    🔑 Generieren
-                  </button>
-                </div>
-                {/* Kopier-Button: kopiert E-Mail + Passwort zusammen */}
-                {newUserPw&&f.email&&(
-                  <CopyLoginButton email={f.email} password={newUserPw}/>
+                {/* Generator-Button immer sichtbar, groß und auffällig */}
+                <button onClick={()=>{const pw=generatePassword();setNewUserPw(pw);}}
+                  style={{width:"100%",padding:"11px 14px",background:"#5a8a1f",color:"#fff",border:"none",
+                    borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                    boxShadow:"0 2px 6px rgba(90,138,31,0.3)"}}>
+                  🔑 Sicheres Passwort automatisch generieren
+                </button>
+                {/* Passwort-Anzeige mit Kopier-Möglichkeit */}
+                {newUserPw&&(
+                  <>
+                    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+                      <div style={{flex:1,background:"#f8faf0",border:"1.5px solid #5a8a1f",borderRadius:8,
+                        padding:"10px 14px",fontFamily:"monospace",fontSize:15,letterSpacing:"0.08em",
+                        color:"#2d3a2e",fontWeight:700}}>
+                        {newUserPw}
+                      </div>
+                      <button onClick={()=>setNewUserPw(generatePassword())}
+                        title="Neues Passwort generieren"
+                        style={{background:"#f8faf0",border:"1.5px solid #d5e8a0",borderRadius:8,
+                          padding:"10px 10px",cursor:"pointer",fontSize:16}}>
+                        🔄
+                      </button>
+                    </div>
+                    {f.email&&<CopyLoginButton email={f.email} password={newUserPw} vorname={f.vorname}/>}
+                  </>
                 )}
-                <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>
-                  💡 Klicke „Generieren" für ein sicheres Passwort, dann „Login-Daten kopieren" um sie dem Mitarbeiter zu senden.
-                </div>
+                {!newUserPw&&(
+                  <div style={{fontSize:11,color:"#f97316",marginTop:4,fontWeight:600}}>
+                    ⚠ Bitte erst Passwort generieren
+                  </div>
+                )}
               </div>
             )}
 
@@ -1235,14 +1304,35 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||`${year}-01-01`);
   const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
   const[note,setNote]=useState(initial?.note||"");
   const[busy,setBusy]=useState(false);
+  const[conflicts,setConflicts]=useState([]);
   const wd=countWD(von,bis);
-  async function save(){if(!von||!bis||bis<von){alert("Bitte gültige Daten wählen.");return;}setBusy(true);try{await onSave({type,von,bis,note});}finally{setBusy(false);}}
+
+  // Konflikt-Prüfung in Echtzeit
+  useEffect(()=>{
+    if(!von||!bis||bis<von||(allEntries||[]).length===0){setConflicts([]);return;}
+    const cf=(allEntries||[]).filter(e=>
+      e.status==="confirmed"&&
+      e.user_id!==currentUserId&&
+      e.id!==initial?.id&&
+      von<=e.bis&&bis>=e.von
+    );
+    setConflicts(cf);
+  },[von,bis,allEntries,currentUserId]);
+
+  async function save(){
+    if(!von||!bis||bis<von){alert("Bitte gültige Daten wählen.");return;}
+    if(conflicts.length>0&&!isAdmin){
+      const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub eines Kollegen.\nTrotzdem beantragen?`);
+      if(!ok)return;
+    }
+    setBusy(true);try{await onSave({type,von,bis,note});}finally{setBusy(false);}
+  }
   return(
     <div style={S.overlay}>
       <div style={S.modal}>
@@ -1252,8 +1342,27 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose}){
           <div style={{marginBottom:12}}><label style={S.lbl}>Von</label><input style={S.inp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/></div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Bis</label><input style={S.inp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/></div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
-          <div style={{fontSize:13,color:"#94a3b8",padding:"8px 0",borderTop:"1px solid #334155"}}>Arbeitstage (Mo–Fr): <strong style={{color:"#f1f5f9"}}>{wd}</strong></div>
-          {!isAdmin&&<div style={{fontSize:11,color:"#64748b",marginTop:6}}>Ihr Antrag wird dem Administrator zur Genehmigung vorgelegt.</div>}
+          <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between"}}>
+            <span>Arbeitstage (Mo–Fr): <strong style={{color:"#2d3a2e"}}>{wd}</strong></span>
+          </div>
+          {/* Konflikt-Warnung */}
+          {conflicts.length>0&&(
+            <div style={{background:"#fff7ed",border:"1.5px solid #f0932b",borderRadius:8,padding:"10px 12px",marginTop:4}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#92400e",marginBottom:4}}>
+                ⚠ Überschneidung mit {conflicts.length} {conflicts.length===1?"Kollegen":"Kollegen"}
+              </div>
+              {conflicts.slice(0,3).map((e,i)=>(
+                <div key={i} style={{fontSize:12,color:"#b45309"}}>
+                  • {fmtDE(e.von)} – {fmtDE(e.bis)}
+                </div>
+              ))}
+              {isAdmin
+                ? <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Als Admin kannst du den Eintrag trotzdem bestätigen.</div>
+                : <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Du kannst den Antrag trotzdem stellen — der Admin entscheidet.</div>
+              }
+            </div>
+          )}
+          {!isAdmin&&<div style={{fontSize:11,color:"#8aaa5f",marginTop:6}}>Dein Antrag wird dem Administrator zur Genehmigung vorgelegt.</div>}
         </div>
         <div style={S.mFt}><button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>{isAdmin?"Speichern":"Beantragen"}</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
       </div>
