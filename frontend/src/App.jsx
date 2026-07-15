@@ -50,7 +50,7 @@ export default function App(){
 
   if(!styleRef.current){
     const s=document.createElement("style");
-    s.textContent=PRINT_STYLE+`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{font-family:'DM Sans',sans-serif;background:#0f172a;color:#e2e8f0;}input,select,textarea{font-family:inherit;}button{cursor:pointer;font-family:inherit;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:#1e293b;}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px;}`;
+    s.textContent=PRINT_STYLE+`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Nunito+Sans:wght@400;500;600;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Nunito Sans',sans-serif;background:#f0f4f0;color:#2d3a2e;}input,select,textarea{font-family:inherit;}button{cursor:pointer;font-family:inherit;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:#e8f0e8;}::-webkit-scrollbar-thumb{background:#5a9e6f;border-radius:3px;}`;
     document.head.appendChild(s);
     styleRef.current=true;
   }
@@ -222,8 +222,13 @@ export default function App(){
       {/* HEADER */}
       <header style={S.header}>
         <div style={S.hL}>
-          <span style={{fontSize:22}}>📅</span>
-          <span style={S.logoTxt}>Urlaubsplaner</span>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:26}}>🏥</span>
+            <div>
+              <div style={S.logoTxt}>Therapie- & Pflegezentrum Westlausitz</div>
+              <div style={S.logoSub}>Urlaubsplaner</div>
+            </div>
+          </div>
           <div style={S.yearCtrl}>
             <button style={S.yBtn} onClick={()=>setYear(y=>y-1)}>‹</button>
             <span style={S.yLbl}>{year}</span>
@@ -264,7 +269,7 @@ export default function App(){
 
       {/* NOTIFICATION */}
       {notif&&(
-        <div style={{...S.notif,background:notif.type==="warn"?"#7c2d12":"#14532d",borderColor:notif.type==="warn"?"#ea580c":"#16a34a",color:notif.type==="warn"?"#fed7aa":"#bbf7d0"}}>
+        <div style={{...S.notif,background:notif.type==="warn"?"#fff7ed":"#f0fdf4",borderColor:notif.type==="warn"?"#f97316":"#22c55e",color:notif.type==="warn"?"#9a3412":"#15803d"}}>
           {notif.type==="warn"?"⚠️":"✅"} {notif.msg}
         </div>
       )}
@@ -331,12 +336,12 @@ function LoginScreen({onLogin}){
   }
 
   return(
-    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#1e293b",borderRadius:16,padding:40,width:400,maxWidth:"90vw",border:"1px solid #334155",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#e8f5eb 0%,#f0f4f0 50%,#e0efe3 100%)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"#ffffff",borderRadius:16,padding:40,width:420,maxWidth:"90vw",border:"1px solid #d4e6d8",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:44,marginBottom:8}}>📅</div>
-          <div style={{fontSize:22,fontWeight:700,color:"#f1f5f9"}}>Urlaubsplaner</div>
-          <div style={{fontSize:13,color:"#64748b",marginTop:4}}>TZ Westlausitz</div>
+          <div style={{fontSize:44,marginBottom:8}}>🏥</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>Therapie- & Pflegezentrum Westlausitz</div>
+          <div style={{fontSize:13,color:"#6b8f74",marginTop:4,fontWeight:600}}>Urlaubsplaner · Individuelles Funktionstraining</div>
         </div>
 
         {!forgotMode?(
@@ -353,7 +358,7 @@ function LoginScreen({onLogin}){
           <>
             {!forgotSent?(
               <>
-                <div style={{fontSize:14,color:"#94a3b8",marginBottom:16,lineHeight:1.5}}>
+                <div style={{fontSize:14,color:"#6b8f74",marginBottom:16,lineHeight:1.5}}>
                   Gib deine E-Mail-Adresse ein. Der Administrator wird benachrichtigt und setzt dein Passwort zurück.
                 </div>
                 <div style={{marginBottom:14}}><label style={S.lbl}>E-Mail-Adresse</label><input style={S.inp} type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} autoFocus/></div>
@@ -365,8 +370,8 @@ function LoginScreen({onLogin}){
               <>
                 <div style={{textAlign:"center",padding:"20px 0"}}>
                   <div style={{fontSize:40,marginBottom:12}}>✅</div>
-                  <div style={{fontSize:15,fontWeight:600,color:"#f1f5f9",marginBottom:8}}>Anfrage gesendet!</div>
-                  <div style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>Der Administrator wurde benachrichtigt und wird dein Passwort in Kürze zurücksetzen.</div>
+                  <div style={{fontSize:15,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>Anfrage gesendet!</div>
+                  <div style={{fontSize:13,color:"#6b8f74",lineHeight:1.6}}>Der Administrator wurde benachrichtigt und wird dein Passwort in Kürze zurücksetzen.</div>
                 </div>
                 <button onClick={()=>{setForgotMode(false);setForgotSent(false);setErr("");}} style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,marginTop:16}}>← Zurück zum Login</button>
               </>
@@ -404,7 +409,7 @@ function MonthCard({year,month,entries,profiles,bl,onTip,offTip}){
               else if(e.status==="pending")pend.push({color,name});
             }
           }
-          let bg="transparent",tc=wk?"#475569":"#94a3b8";
+          let bg="transparent",tc=wk?"#b0c8b5":"#6b8f74";
           if(mk.length===1){bg=ca(mk[0].color,mk[0].type==="ueberstunden"?0.3:0.75);tc="#fff";}
           else if(mk.length>1){bg=`linear-gradient(135deg,${mk.map((m,i)=>`${ca(m.color,0.72)} ${i*100/mk.length}% ${(i+1)*100/mk.length}%`).join(",")})`;tc="#fff";}
           else if(pend.length>0){bg=ca(pend[0].color,0.18);}
@@ -444,11 +449,11 @@ function DashView({users,isAdmin,year,onEdit}){
           const total=urlU+rstU,rem=(u.urlaubstage||30)-total,ueRem=(u.ueberstunden||0)-ueU;
           const pend=entries.filter(e=>e.status==="pending").length;
           return(
-            <div key={u.id} style={{...S.card,borderTop:`4px solid ${u.color||"#2563EB"}`}}>
+            <div key={u.id} style={{...S.card,borderTop:`4px solid ${u.color||"#3d7a4f"}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{...S.av,width:40,height:40,fontSize:16,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>
-                  <div><div style={{fontWeight:700,fontSize:15,color:"#f1f5f9"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#64748b"}}>{u.position||"Trainer"}</div></div>
+                  <div><div style={{fontWeight:700,fontSize:15,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#6b8f74",fontWeight:500}}>{u.position||"Trainer"}</div></div>
                 </div>
                 {isAdmin&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}
               </div>
@@ -469,8 +474,8 @@ function DashView({users,isAdmin,year,onEdit}){
                       <div style={{display:"flex",alignItems:"center",gap:7}}>
                         <div style={{width:6,height:6,borderRadius:"50%",background:u.color||"#2563EB",flexShrink:0}}/>
                         <div>
-                          <div style={{fontSize:12,color:"#f1f5f9"}}>{fmtDE(e.von)} – {fmtDE(e.bis)}</div>
-                          <div style={{fontSize:10,color:"#64748b"}}>{TL[e.type]||e.type} · {countWD(e.von,e.bis)} T</div>
+                          <div style={{fontSize:12,color:"#2d3a2e",fontWeight:500}}>{fmtDE(e.von)} – {fmtDE(e.bis)}</div>
+                          <div style={{fontSize:10,color:"#6b8f74"}}>{TL[e.type]||e.type} · {countWD(e.von,e.bis)} T</div>
                         </div>
                       </div>
                       <StBadge status={e.status}/>
@@ -485,9 +490,9 @@ function DashView({users,isAdmin,year,onEdit}){
     </div>
   );
 }
-function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#0f172a",borderRadius:8,padding:"9px 11px"}}><div style={{fontSize:10,color:"#64748b",marginBottom:3}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#f1f5f9"}}>{val}<span style={{color:"#475569",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:3,background:"#1e293b",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
-function Chip({text,bg,col}){return<span style={{fontSize:10,background:bg,color:col,borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>{text}</span>;}
-function StBadge({status}){const m={confirmed:["✓ Bestätigt","#4ade80","rgba(74,222,128,0.12)"],pending:["⏳ Ausstehend","#fbbf24","rgba(251,191,36,0.12)"],rejected:["✗ Abgelehnt","#f87171","rgba(248,113,113,0.12)"]};const[t,c,b]=m[status]||["?","#64748b","#1e293b"];return<span style={{fontSize:10,background:b,color:c,borderRadius:8,padding:"2px 7px",fontWeight:600,whiteSpace:"nowrap"}}>{t}</span>;}
+function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f7faf7",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#6b8f74",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{val}<span style={{color:"#9ab89f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
+function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
+function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
 function MitView({users,onAdd,onEdit,onDelete}){
@@ -497,21 +502,21 @@ function MitView({users,onAdd,onEdit,onDelete}){
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
         <button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>
       </div>
-      <div style={{background:"#1e293b",borderRadius:12,border:"1px solid #334155",overflow:"hidden"}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#162032"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f7faf7"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
               const entries=u.entries||[];
               const urlT=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueT=eDays(entries,"ueberstunden"),pend=entries.filter(e=>e.status==="pending").length;
               return(
-                <tr key={u.id} style={{borderBottom:"1px solid #0f172a"}}>
+                <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
                   <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{...S.av,width:30,height:30,fontSize:13,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>{u.vorname} {u.nachname}</div></td>
-                  <td style={{...S.td,fontSize:12,color:"#64748b"}}>{u.email}</td>
-                  <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"rgba(251,191,36,0.15)":"rgba(99,102,241,0.15)",color:u.role==="admin"?"#fbbf24":"#818cf8",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{u.role==="admin"?"Admin":"Trainer"}</span></td>
+                  <td style={{...S.td,fontSize:12,color:"#9ab89f"}}>{u.email}</td>
+                  <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{u.role==="admin"?"Admin":"Trainer"}</span></td>
                   <td style={S.td}>{urlT} / {u.urlaubstage||30} T</td>
                   <td style={S.td}>{ueT} / {u.ueberstunden||0} T</td>
-                  <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="rgba(251,191,36,0.15)" col="#fbbf24"/>}</td>
+                  <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/>}</td>
                   <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button><button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button></div></td>
                 </tr>
               );
@@ -535,12 +540,12 @@ function EintAdmin({entries,profiles,onStatus,onDelete,onAdd,onEdit}){
   function ETable({rows,showAct}){
     if(!rows.length)return null;
     return(
-      <div style={{background:"#1e293b",borderRadius:10,border:"1px solid #334155",overflow:"hidden",marginBottom:16}}>
+      <div style={{background:"#fff",borderRadius:10,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#162032"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f7faf7"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(e=>(
-              <tr key={e.id} style={{borderBottom:"1px solid #0f172a"}}>
+              <tr key={e.id} style={{borderBottom:"1px solid #edf5ee"}}>
                 <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{...S.legDot,background:e.pColor}}/>{e.pName||"Unbekannt"}</div></td>
                 <td style={S.td}><span style={{fontSize:11,background:ca(e.pColor,0.2),color:e.pColor,borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
@@ -550,7 +555,7 @@ function EintAdmin({entries,profiles,onStatus,onDelete,onAdd,onEdit}){
                 <td style={S.td}>
                   <div style={{display:"flex",gap:4}}>
                     {showAct&&e.status==="pending"&&<>
-                      <button style={{...S.icnBtn,background:"rgba(22,163,74,0.2)",color:"#4ade80",fontSize:14}} onClick={()=>onStatus(e.id,"confirmed")} title="Bestätigen">✓</button>
+                      <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",fontSize:14}} onClick={()=>onStatus(e.id,"confirmed")} title="Bestätigen">✓</button>
                       <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14}} onClick={()=>onStatus(e.id,"rejected")} title="Ablehnen">✗</button>
                     </>}
                     <button style={S.icnBtn} onClick={()=>onEdit(e.user_id,e)}>✏️</button>
@@ -572,8 +577,8 @@ function EintAdmin({entries,profiles,onStatus,onDelete,onAdd,onEdit}){
           {profiles.map(u=><button key={u.id} style={{...S.addBtn,background:u.color||"#2563EB",fontSize:11,padding:"6px 10px"}} onClick={()=>onAdd(u.id)}>+ {u.vorname}</button>)}
         </div>
       </div>
-      {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#fbbf24",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct/></>}
-      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#94a3b8",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest}/></>}
+      {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct/></>}
+      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#5a9e6f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest}/></>}
       {rich.length===0&&<div style={{color:"#475569",fontSize:14,padding:24,textAlign:"center"}}>Noch keine Einträge.</div>}
     </div>
   );
@@ -593,20 +598,20 @@ function MeinUrlaub({user,onAdd,onEdit,onDelete}){
       </div>
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${ueU}/${user.ueberstunden}`,false]]:[])].map(([ic,lb,vl,warn])=>(
-          <div key={lb} style={{background:"#1e293b",borderRadius:10,padding:"12px 16px",border:`1px solid ${warn?"#f87171":"#334155"}`,minWidth:90}}>
+          <div key={lb} style={{background:"#fff",borderRadius:10,padding:"12px 16px",border:`1.5px solid ${warn?"#fca5a5":"#d4e6d8"}`,minWidth:90,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
-            <div style={{fontSize:20,fontWeight:700,color:warn?"#f87171":"#f1f5f9"}}>{vl}</div>
-            <div style={{fontSize:11,color:"#64748b"}}>{lb}</div>
+            <div style={{fontSize:20,fontWeight:800,color:warn?"#dc2626":"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{vl}</div>
+            <div style={{fontSize:11,color:"#6b8f74",fontWeight:600}}>{lb}</div>
           </div>
         ))}
       </div>
-      <div style={{background:"#1e293b",borderRadius:12,border:"1px solid #334155",overflow:"hidden"}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#162032"}}>{["Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f7faf7"}}>{["Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {entries.length===0&&<tr><td colSpan={6} style={{...S.td,color:"#475569",textAlign:"center",padding:28}}>Noch keine Urlaubsanträge.</td></tr>}
             {[...entries].sort((a,b)=>a.von.localeCompare(b.von)).map(e=>(
-              <tr key={e.id} style={{borderBottom:"1px solid #0f172a"}}>
+              <tr key={e.id} style={{borderBottom:"1px solid #edf5ee"}}>
                 <td style={S.td}><span style={{fontSize:11,background:ca(user?.color||"#2563EB",0.2),color:user?.color||"#2563EB",borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
@@ -618,7 +623,7 @@ function MeinUrlaub({user,onAdd,onEdit,onDelete}){
           </tbody>
         </table>
       </div>
-      <div style={{marginTop:10,fontSize:11,color:"#475569"}}>Bestätigte Einträge können nur vom Administrator bearbeitet werden.</div>
+      <div style={{marginTop:10,fontSize:11,color:"#9ab89f"}}>Bestätigte Einträge können nur vom Administrator bearbeitet werden.</div>
     </div>
   );
 }
@@ -644,10 +649,10 @@ function FerView({year,state,stateName}){
           <div style={{fontSize:12,fontWeight:700,color:"#f472b6",marginBottom:10}}>Schulferien ({ferien.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
             {ferien.map(([v,b,n],i)=>(
-              <div key={i} style={{background:"#1e293b",borderRadius:8,padding:"10px 14px",border:"1px solid #334155",borderLeft:"4px solid #f9a8d4"}}>
-                <div style={{fontWeight:600,fontSize:13,color:"#f1f5f9",marginBottom:3}}>{n}</div>
-                <div style={{fontSize:12,color:"#94a3b8"}}>{fmtDE(v)} – {fmtDE(b)}</div>
-                <div style={{fontSize:11,color:"#64748b",marginTop:3}}>{countWD(v,b)} Werktage</div>
+              <div key={i} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #d4e6d8",borderLeft:"4px solid #f9a8d4",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#2d3a2e",marginBottom:3}}>{n}</div>
+                <div style={{fontSize:12,color:"#6b8f74"}}>{fmtDE(v)} – {fmtDE(b)}</div>
+                <div style={{fontSize:11,color:"#9ab89f",marginTop:3}}>{countWD(v,b)} Werktage</div>
               </div>
             ))}
           </div>
@@ -656,12 +661,12 @@ function FerView({year,state,stateName}){
       {(tab==="feiertage"||tab==="beides")&&(
         <div>
           <div style={{fontSize:12,fontWeight:700,color:"#c9a07a",marginBottom:10}}>Feiertage ({feiertage.length})</div>
-          <div style={{background:"#1e293b",borderRadius:10,border:"1px solid #334155",overflow:"hidden"}}>
+          <div style={{background:"#fff",borderRadius:10,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr style={{background:"#162032"}}><th style={S.th}>Datum</th><th style={S.th}>Tag</th><th style={S.th}>Feiertag</th></tr></thead>
+              <thead><tr style={{background:"#f7faf7"}}><th style={S.th}>Datum</th><th style={S.th}>Tag</th><th style={S.th}>Feiertag</th></tr></thead>
               <tbody>{feiertage.map(([iso,name])=>(
-                <tr key={iso} style={{borderBottom:"1px solid #0f172a"}}>
-                  <td style={{...S.td,fontFamily:"monospace",fontSize:12,color:"#c9a07a"}}>{fmtDE(iso)}</td>
+                <tr key={iso} style={{borderBottom:"1px solid #edf5ee"}}>
+                  <td style={{...S.td,fontFamily:"monospace",fontSize:12,color:"#92400e",fontWeight:600}}>{fmtDE(iso)}</td>
                   <td style={{...S.td,fontSize:12,color:isWE(...iso.split("-").map((v,j)=>j===1?parseInt(v)-1:parseInt(v)))?"#f87171":"#64748b"}}>{wday(iso)}</td>
                   <td style={{...S.td,fontWeight:500}}>{name}</td>
                 </tr>
@@ -702,9 +707,9 @@ function ProfView({user,onSave,onChangePw}){
         <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
           <div style={{...S.av,width:52,height:52,fontSize:20,background:form.color}}>{form.vorname?.[0]||"?"}</div>
           <div>
-            <div style={{fontWeight:700,fontSize:16,color:"#f1f5f9"}}>{form.vorname} {form.nachname}</div>
-            <div style={{fontSize:12,color:user?.role==="admin"?"#fbbf24":"#64748b"}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
-            <div style={{fontSize:12,color:"#64748b"}}>{user?.email}</div>
+            <div style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{form.vorname} {form.nachname}</div>
+            <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#6b8f74",fontWeight:600}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
+            <div style={{fontSize:12,color:"#9ab89f"}}>{user?.email}</div>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
@@ -722,7 +727,7 @@ function ProfView({user,onSave,onChangePw}){
           </div>
         </div>
         <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveProfile} disabled={busy}>Profil speichern</button>
-        <div style={{marginTop:24,borderTop:"1px solid #334155",paddingTop:20}}>
+        <div style={{marginTop:24,borderTop:"1px solid #edf5ee",paddingTop:20}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pwMode?14:0}}>
             <div style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>🔐 Passwort</div>
             <button style={S.canBtn} onClick={()=>{setPwMode(v=>!v);setPwMsg("");}}>{pwMode?"Abbrechen":"Passwort ändern"}</button>
@@ -790,11 +795,11 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
   return(
     <div style={S.overlay}>
       <div style={{...S.modal,maxHeight:"92vh",overflowY:"auto",width:520}}>
-        <div style={S.mHd}><span style={{fontWeight:700,fontSize:16}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
+        <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
         <div style={S.mBd}>
 
           {/* ── Stammdaten ── */}
-          <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
             <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
             <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
@@ -833,7 +838,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
 
           {/* ── Zugangsdaten (separater Bereich) ── */}
           <div style={{borderTop:"1px solid #334155",paddingTop:14,marginBottom:4}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Zugangsdaten</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Zugangsdaten</div>
 
             {/* E-Mail */}
             <div style={{marginBottom:12}}><label style={S.lbl}>E-Mail-Adresse *</label>
@@ -860,8 +865,8 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
                   </button>
                 </div>
                 {showPwReset&&(
-                  <div style={{marginTop:10,padding:12,background:"#0f172a",borderRadius:8,display:"flex",flexDirection:"column",gap:8}}>
-                    <div style={{fontSize:11,color:"#fbbf24",marginBottom:2}}>⚠ Als Admin kannst du das Passwort ohne das alte Passwort zurücksetzen.</div>
+                  <div style={{marginTop:10,padding:12,background:"#f7faf7",borderRadius:8,border:"1px solid #d4e6d8",display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{fontSize:11,color:"#92400e",marginBottom:2}}>⚠ Als Admin kannst du das Passwort ohne das alte Passwort zurücksetzen.</div>
                     <div><label style={S.lbl}>Neues Passwort</label>
                       <input style={S.inp} type="password" value={adminPw} onChange={e=>setAdminPw(e.target.value)} placeholder="Mindestens 6 Zeichen"/>
                     </div>
@@ -897,7 +902,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose}){
   return(
     <div style={S.overlay}>
       <div style={S.modal}>
-        <div style={S.mHd}><span style={{fontWeight:700,fontSize:16}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
+        <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
         <div style={S.mBd}>
           <div style={{marginBottom:12}}><label style={S.lbl}>Typ</label><select style={S.inp} value={type} onChange={e=>setType(e.target.value)}><option value="urlaub">Urlaub</option><option value="resturlaub">Resturlaub (Vorjahr)</option><option value="ueberstunden">Überstunden abbauen</option></select></div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Von</label><input style={S.inp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/></div>
@@ -971,48 +976,54 @@ function PrintList({year,users,stateName}){
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── TZ Westlausitz Farbpalette ───────────────────────────────────────────────
+// Primär: Grün #3d7a4f / #5a9e6f  Akzent: Hellgrün #7cbd8f
+// Hintergrund: Hellgrau-Grün #f0f4f0  Text: Dunkelgrau #2d3a2e
+// Cards: Weiß #ffffff  Border: #d4e6d8
 const S={
-  app:{minHeight:"100vh",background:"#0f172a",display:"flex",flexDirection:"column"},
-  header:{background:"#1e293b",borderBottom:"1px solid #334155",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8},
-  hL:{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"},hR:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"},
-  logoTxt:{fontSize:17,fontWeight:700,color:"#f1f5f9"},
-  yearCtrl:{display:"flex",alignItems:"center",gap:6,background:"#0f172a",borderRadius:8,padding:"3px 6px"},
-  yBtn:{background:"none",border:"none",color:"#94a3b8",fontSize:20,padding:"0 5px",lineHeight:1,cursor:"pointer"},
-  yLbl:{fontSize:18,fontWeight:700,color:"#f1f5f9",minWidth:54,textAlign:"center",fontFamily:"monospace"},
-  blSel:{background:"#0f172a",border:"1px solid #334155",color:"#f1f5f9",borderRadius:6,padding:"4px 8px",fontSize:12,cursor:"pointer",outline:"none"},
-  uBadge:{display:"flex",alignItems:"center",gap:8,background:"#0f172a",borderRadius:8,padding:"5px 10px"},
-  av:{width:34,height:34,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#fff",flexShrink:0},
-  pBtn:{background:"#1e3a5f",border:"none",color:"#93c5fd",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"},
-  nav:{background:"#1e293b",borderBottom:"1px solid #334155",padding:"0 20px",display:"flex",alignItems:"center",gap:2,overflowX:"auto"},
-  navBtn:{background:"none",border:"none",color:"#64748b",padding:"11px 12px",fontSize:12,fontWeight:500,borderBottom:"3px solid transparent",whiteSpace:"nowrap",cursor:"pointer"},
-  navAct:{color:"#f1f5f9",borderBottom:"3px solid #2563EB"},
-  pendBadge:{background:"rgba(251,191,36,0.2)",color:"#fbbf24",borderRadius:10,padding:"3px 10px",fontSize:11,fontWeight:700,marginLeft:4},
-  legend:{marginLeft:"auto",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",paddingLeft:10},
-  legItem:{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#94a3b8"},
-  legDot:{width:8,height:8,borderRadius:"50%"},
-  notif:{position:"fixed",top:66,left:"50%",transform:"translateX(-50%)",borderRadius:10,padding:"10px 20px",zIndex:2500,fontSize:13,boxShadow:"0 8px 24px rgba(0,0,0,0.4)",maxWidth:"90vw",textAlign:"center",border:"1px solid"},
-  main:{flex:1,padding:18,overflowY:"auto"},
-  mCard:{background:"#1e293b",borderRadius:10,padding:10,border:"1px solid #334155"},
-  mTitle:{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:6,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.07em"},
+  app:{minHeight:"100vh",background:"#f0f4f0",display:"flex",flexDirection:"column"},
+  header:{background:"#3d7a4f",borderBottom:"none",padding:"0 24px",display:"flex",justifyContent:"space-between",alignItems:"stretch",flexWrap:"wrap",gap:0,boxShadow:"0 2px 12px rgba(61,122,79,0.25)"},
+  hL:{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",padding:"12px 0"},
+  hR:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"12px 0"},
+  logoTxt:{fontSize:16,fontWeight:800,color:"#ffffff",letterSpacing:"-0.01em",fontFamily:"'Nunito',sans-serif"},
+  logoSub:{fontSize:11,color:"rgba(255,255,255,0.75)",fontWeight:500},
+  yearCtrl:{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.15)",borderRadius:8,padding:"4px 8px",border:"1px solid rgba(255,255,255,0.2)"},
+  yBtn:{background:"none",border:"none",color:"#fff",fontSize:20,padding:"0 4px",lineHeight:1,cursor:"pointer"},
+  yLbl:{fontSize:17,fontWeight:700,color:"#fff",minWidth:54,textAlign:"center"},
+  blSel:{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",borderRadius:8,padding:"5px 10px",fontSize:12,cursor:"pointer",outline:"none"},
+  uBadge:{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 12px",border:"1px solid rgba(255,255,255,0.2)"},
+  av:{width:34,height:34,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#fff",flexShrink:0,fontSize:14},
+  pBtn:{background:"rgba(255,255,255,0.18)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"},
+  nav:{background:"#ffffff",borderBottom:"1px solid #d4e6d8",padding:"0 24px",display:"flex",alignItems:"center",gap:2,overflowX:"auto",boxShadow:"0 1px 4px rgba(61,122,79,0.08)"},
+  navBtn:{background:"none",border:"none",color:"#6b8f74",padding:"13px 14px",fontSize:13,fontWeight:600,borderBottom:"3px solid transparent",whiteSpace:"nowrap",cursor:"pointer",transition:"color .15s"},
+  navAct:{color:"#3d7a4f",borderBottom:"3px solid #3d7a4f"},
+  pendBadge:{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,marginLeft:6,border:"1px solid #fde68a"},
+  legend:{marginLeft:"auto",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",paddingLeft:12},
+  legItem:{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#6b8f74"},
+  legDot:{width:9,height:9,borderRadius:"50%"},
+  notif:{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",borderRadius:10,padding:"11px 22px",zIndex:2500,fontSize:13,boxShadow:"0 8px 32px rgba(61,122,79,0.2)",maxWidth:"90vw",textAlign:"center",border:"1px solid",fontWeight:500},
+  main:{flex:1,padding:20,overflowY:"auto"},
+  mCard:{background:"#ffffff",borderRadius:12,padding:12,border:"1px solid #d4e6d8",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"},
+  mTitle:{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:7,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"},
   cGrid:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2},
-  dHd:{textAlign:"center",fontSize:8,fontWeight:600,color:"#475569",padding:"2px 0"},
-  dCell:{textAlign:"center",padding:"2px 0",borderRadius:2,minHeight:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"},
-  card:{background:"#1e293b",borderRadius:12,padding:18,border:"1px solid #334155"},
-  pgT:{fontSize:18,fontWeight:700,color:"#f1f5f9",marginBottom:16},
-  addBtn:{background:"#2563EB",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"},
-  icnBtn:{background:"#334155",border:"none",color:"#94a3b8",borderRadius:6,padding:"4px 7px",fontSize:13,cursor:"pointer"},
-  th:{textAlign:"left",padding:"9px 12px",fontSize:11,fontWeight:600,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.04em"},
-  td:{padding:"9px 12px",fontSize:13,color:"#cbd5e1"},
-  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1500,backdropFilter:"blur(4px)"},
-  modal:{background:"#1e293b",borderRadius:14,width:460,maxWidth:"95vw",border:"1px solid #334155",boxShadow:"0 20px 60px rgba(0,0,0,0.6)"},
-  mHd:{padding:"16px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #334155"},
-  mBd:{padding:"16px 20px"},
-  mFt:{padding:"12px 20px 16px",display:"flex",gap:10,borderTop:"1px solid #334155"},
-  inp:{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"8px 11px",color:"#f1f5f9",fontSize:13,outline:"none",boxSizing:"border-box"},
-  lbl:{display:"block",fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"},
-  savBtn:{background:"#2563EB",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:600,fontSize:13,cursor:"pointer"},
-  canBtn:{background:"#334155",color:"#94a3b8",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,cursor:"pointer"},
-  clsBtn:{background:"none",border:"none",color:"#64748b",fontSize:18,lineHeight:1,padding:"2px 6px",cursor:"pointer"},
-  tabTgl:{background:"none",border:"none",color:"#64748b",padding:"6px 11px",borderRadius:6,fontSize:12,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap"},
-  tabTglAct:{background:"#334155",color:"#f1f5f9",fontWeight:600},
+  dHd:{textAlign:"center",fontSize:8,fontWeight:700,color:"#9ab89f",padding:"3px 0"},
+  dCell:{textAlign:"center",padding:"2px 0",borderRadius:3,minHeight:22,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"},
+  card:{background:"#ffffff",borderRadius:14,padding:20,border:"1px solid #d4e6d8",boxShadow:"0 2px 10px rgba(61,122,79,0.07)"},
+  pgT:{fontSize:20,fontWeight:800,color:"#2d3a2e",marginBottom:18,fontFamily:"'Nunito',sans-serif"},
+  addBtn:{background:"#3d7a4f",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
+  icnBtn:{background:"#f0f4f0",border:"1px solid #d4e6d8",color:"#5a9e6f",borderRadius:6,padding:"4px 8px",fontSize:13,cursor:"pointer"},
+  th:{textAlign:"left",padding:"10px 14px",fontSize:11,fontWeight:700,color:"#6b8f74",textTransform:"uppercase",letterSpacing:"0.05em",background:"#f7faf7"},
+  td:{padding:"10px 14px",fontSize:13,color:"#2d3a2e",borderBottom:"1px solid #edf5ee"},
+  overlay:{position:"fixed",inset:0,background:"rgba(45,58,46,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1500,backdropFilter:"blur(4px)"},
+  modal:{background:"#ffffff",borderRadius:16,width:500,maxWidth:"95vw",border:"1px solid #d4e6d8",boxShadow:"0 20px 60px rgba(61,122,79,0.18)"},
+  mHd:{padding:"18px 22px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #edf5ee"},
+  mBd:{padding:"18px 22px"},
+  mFt:{padding:"14px 22px 18px",display:"flex",gap:10,borderTop:"1px solid #edf5ee"},
+  inp:{width:"100%",background:"#f7faf7",border:"1.5px solid #c8deca",borderRadius:8,padding:"9px 12px",color:"#2d3a2e",fontSize:13,outline:"none",boxSizing:"border-box",transition:"border .15s"},
+  lbl:{display:"block",fontSize:11,fontWeight:700,color:"#6b8f74",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"},
+  savBtn:{background:"#3d7a4f",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
+  canBtn:{background:"#f0f4f0",color:"#6b8f74",border:"1px solid #d4e6d8",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",fontWeight:600},
+  clsBtn:{background:"none",border:"none",color:"#9ab89f",fontSize:20,lineHeight:1,padding:"2px 6px",cursor:"pointer"},
+  tabTgl:{background:"none",border:"none",color:"#9ab89f",padding:"7px 13px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},
+  tabTglAct:{background:"#e8f5eb",color:"#3d7a4f",fontWeight:700},
 };
