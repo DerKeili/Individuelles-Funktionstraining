@@ -679,7 +679,16 @@ function FerView({year,state,stateName}){
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
 function ProfView({user,onSave,onChangePw}){
-  const[form,setForm]=useState({vorname:user?.vorname||"",nachname:user?.nachname||"",geburtsdatum:user?.geburtsdatum||"",position:user?.position||"",color:user?.color||"#2563EB",urlaubstage:user?.urlaubstage||30,ueberstunden:user?.ueberstunden||0});
+  // Zahlenfelder als String speichern → kein "0" Prefix Problem
+  const[form,setForm]=useState({
+    vorname:user?.vorname||"",
+    nachname:user?.nachname||"",
+    geburtsdatum:user?.geburtsdatum||"",
+    position:user?.position||"",
+    color:user?.color||"#5a8a1f",
+    urlaubstage:String(user?.urlaubstage??30),
+    ueberstunden:String(user?.ueberstunden??0),
+  });
   const[pwMode,setPwMode]=useState(false);
   const[curPw,setCurPw]=useState("");
   const[npass,setNpass]=useState("");
@@ -688,7 +697,16 @@ function ProfView({user,onSave,onChangePw}){
   const[showCur,setShowCur]=useState(false);
   const[showNew,setShowNew]=useState(false);
   const[busy,setBusy]=useState(false);
-  async function saveProfile(){setBusy(true);try{await onSave(user.id,form);}finally{setBusy(false);}}
+
+  async function saveProfile(){
+    setBusy(true);
+    try{await onSave(user.id,{
+      ...form,
+      urlaubstage:parseInt(form.urlaubstage)||0,
+      ueberstunden:parseInt(form.ueberstunden)||0,
+    });}
+    finally{setBusy(false);}
+  }
   async function changePw(){
     if(!curPw){setPwMsg("Bitte aktuelles Passwort eingeben.");return;}
     if(npass.length<6){setPwMsg("Mindestens 6 Zeichen.");return;}
@@ -699,35 +717,67 @@ function ProfView({user,onSave,onChangePw}){
     finally{setBusy(false);}
   }
   return(
-    <div style={{maxWidth:560}}>
+    <div style={{maxWidth:580}}>
       <h2 style={{...S.pgT,marginBottom:20}}>Mein Profil</h2>
       <div style={S.card}>
         <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
           <div style={{...S.av,width:52,height:52,fontSize:20,background:form.color}}>{form.vorname?.[0]||"?"}</div>
           <div>
             <div style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{form.vorname} {form.nachname}</div>
-            <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#6b8f74",fontWeight:600}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
+            <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#5a6b4a",fontWeight:600}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
             <div style={{fontSize:12,color:"#8aaa5f"}}>{user?.email}</div>
           </div>
         </div>
+
+        {/* ── Stammdaten: je Zeile 2 Felder ── */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div><label style={S.lbl}>Vorname</label><input style={S.inp} value={form.vorname} onChange={e=>setForm(f=>({...f,vorname:e.target.value}))}/></div>
-          <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/></div>
-          <div><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={form.geburtsdatum} onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/></div>
-          <div><label style={S.lbl}>Position</label><input style={S.inp} value={form.position} onChange={e=>setForm(f=>({...f,position:e.target.value}))}/></div>
-          <div><label style={S.lbl}>Urlaubstage / Jahr</label><input style={S.inp} type="number" min={0} value={form.urlaubstage} onChange={e=>setForm(f=>({...f,urlaubstage:+e.target.value}))}/></div>
-          <div><label style={S.lbl}>Überstunden (Tage)</label><input style={S.inp} type="number" min={0} value={form.ueberstunden} onChange={e=>setForm(f=>({...f,ueberstunden:+e.target.value}))}/></div>
+          <div><label style={S.lbl}>Vorname</label>
+            <input style={S.inp} value={form.vorname} onChange={e=>setForm(f=>({...f,vorname:e.target.value}))}/>
+          </div>
+          <div><label style={S.lbl}>Nachname</label>
+            <input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/>
+          </div>
+          {/* Geburtsdatum volle Breite damit Datumsfeld nicht überläuft */}
+          <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div><label style={S.lbl}>Geburtsdatum</label>
+              <input style={S.inp} type="date" value={form.geburtsdatum}
+                onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/>
+            </div>
+            <div><label style={S.lbl}>Position</label>
+              <input style={S.inp} value={form.position}
+                onChange={e=>setForm(f=>({...f,position:e.target.value}))}/>
+            </div>
+          </div>
+          <div><label style={S.lbl}>Urlaubstage / Jahr</label>
+            <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+              value={form.urlaubstage}
+              onChange={e=>{
+                const v=e.target.value.replace(/[^0-9]/g,"");
+                setForm(f=>({...f,urlaubstage:v}));
+              }}
+              onFocus={e=>e.target.select()}/>
+          </div>
+          <div><label style={S.lbl}>Überstunden (Tage)</label>
+            <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+              value={form.ueberstunden}
+              onChange={e=>{
+                const v=e.target.value.replace(/[^0-9]/g,"");
+                setForm(f=>({...f,ueberstunden:v}));
+              }}
+              onFocus={e=>e.target.select()}/>
+          </div>
         </div>
+
         <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {PRESET_COLORS.map(c=><div key={c} onClick={()=>setForm(f=>({...f,color:c}))} style={{width:26,height:26,borderRadius:5,background:c,cursor:"pointer",outline:form.color===c?"3px solid #fff":"none",outlineOffset:2}}/>)}
-            <input type="color" value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))} style={{width:30,height:30,border:"none",borderRadius:5,cursor:"pointer"}}/>
+            {PRESET_COLORS.map(c=><div key={c} onClick={()=>setForm(f=>({...f,color:c}))} style={{width:28,height:28,borderRadius:6,background:c,cursor:"pointer",outline:form.color===c?"3px solid #2d3a2e":"none",outlineOffset:2}}/>)}
+            <input type="color" value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))} style={{width:32,height:32,border:"none",borderRadius:6,cursor:"pointer"}}/>
           </div>
         </div>
         <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveProfile} disabled={busy}>Profil speichern</button>
-        <div style={{marginTop:24,borderTop:"1px solid #edf5ee",paddingTop:20}}>
+        <div style={{marginTop:24,borderTop:"1px solid #edf5d8",paddingTop:20}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pwMode?14:0}}>
-            <div style={{fontSize:14,fontWeight:600,color:"#f1f5f9"}}>🔐 Passwort</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>🔐 Passwort</div>
             <button style={S.canBtn} onClick={()=>{setPwMode(v=>!v);setPwMsg("");}}>{pwMode?"Abbrechen":"Passwort ändern"}</button>
           </div>
           {pwMode&&(
@@ -752,9 +802,9 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
     email:initial?.email||"",role:initial?.role||"trainer",
     color:initial?.color||PRESET_COLORS[0],position:initial?.position||"Trainer",
     geburtsdatum:initial?.geburtsdatum||"",
-    urlaubstage:initial?.urlaubstage??30,
-    ueberstunden:initial?.ueberstunden??0,
-    resturlaub:initial?.resturlaub??0,
+    urlaubstage:String(initial?.urlaubstage??30),
+    ueberstunden:String(initial?.ueberstunden??0),
+    resturlaub:String(initial?.resturlaub??0),
     ...(initial?{id:initial.id}:{})
   });
   // Für neuen User: Passwort
@@ -774,7 +824,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
     if(!f.vorname||!f.email){alert("Vorname und E-Mail sind Pflicht.");return;}
     if(!initial&&!newUserPw){alert("Passwort für neuen Mitarbeiter erforderlich.");return;}
     setBusy(true);
-    try{await onSave({...f,...(!initial?{password:newUserPw}:{})});}
+    try{await onSave({...f,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,...(!initial?{password:newUserPw}:{})});}
     finally{setBusy(false);}
   }
 
@@ -804,19 +854,22 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
             <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
             <div><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
-              <input style={S.inp} type="number" min={0} value={f.urlaubstage}
-                onFocus={numFocus}
-                onChange={e=>setF(p=>({...p,urlaubstage:e.target.value===""?0:+e.target.value}))}/>
+              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+                value={f.urlaubstage}
+                onFocus={e=>e.target.select()}
+                onChange={e=>setF(p=>({...p,urlaubstage:e.target.value.replace(/[^0-9]/g,"")}))}/>
             </div>
             <div><label style={S.lbl}>Überstunden (Tage)</label>
-              <input style={S.inp} type="number" min={0} value={f.ueberstunden}
-                onFocus={numFocus}
-                onChange={e=>setF(p=>({...p,ueberstunden:e.target.value===""?0:+e.target.value}))}/>
+              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+                value={f.ueberstunden}
+                onFocus={e=>e.target.select()}
+                onChange={e=>setF(p=>({...p,ueberstunden:e.target.value.replace(/[^0-9]/g,"")}))}/>
             </div>
             <div><label style={S.lbl}>Resturlaub Vorjahr</label>
-              <input style={S.inp} type="number" min={0} value={f.resturlaub}
-                onFocus={numFocus}
-                onChange={e=>setF(p=>({...p,resturlaub:e.target.value===""?0:+e.target.value}))}/>
+              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+                value={f.resturlaub}
+                onFocus={e=>e.target.select()}
+                onChange={e=>setF(p=>({...p,resturlaub:e.target.value.replace(/[^0-9]/g,"")}))}/>
             </div>
             {isAdmin&&<div><label style={S.lbl}>Rolle</label>
               <select style={S.inp} value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
