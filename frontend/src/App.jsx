@@ -50,7 +50,7 @@ export default function App(){
 
   if(!styleRef.current){
     const s=document.createElement("style");
-    s.textContent=PRINT_STYLE+`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Nunito+Sans:wght@400;500;600;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Nunito Sans',sans-serif;background:#f0f4f0;color:#2d3a2e;}input,select,textarea{font-family:inherit;}button{cursor:pointer;font-family:inherit;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:#e8f0e8;}::-webkit-scrollbar-thumb{background:#5a9e6f;border-radius:3px;}`;
+    s.textContent=PRINT_STYLE+`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Nunito+Sans:wght@400;500;600;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Nunito Sans',sans-serif;background:#f0f4f0;color:#2d3a2e;}input,select,textarea{font-family:inherit;}button{cursor:pointer;font-family:inherit;}::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:#e8f0e8;}::-webkit-scrollbar-thumb{background:#7ab529;border-radius:3px;}`;
     document.head.appendChild(s);
     styleRef.current=true;
   }
@@ -222,10 +222,9 @@ export default function App(){
       {/* HEADER */}
       <header style={S.header}>
         <div style={S.hL}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:26}}>🏥</span>
-            <div>
-              <div style={S.logoTxt}>Therapie- & Pflegezentrum Westlausitz</div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="TZ Westlausitz" style={{height:44,width:"auto",filter:"brightness(0) invert(1)"}}/>
+            <div style={{borderLeft:"1px solid rgba(255,255,255,0.3)",paddingLeft:12}}>
               <div style={S.logoSub}>Urlaubsplaner</div>
             </div>
           </div>
@@ -269,7 +268,7 @@ export default function App(){
 
       {/* NOTIFICATION */}
       {notif&&(
-        <div style={{...S.notif,background:notif.type==="warn"?"#fff7ed":"#f0fdf4",borderColor:notif.type==="warn"?"#f97316":"#22c55e",color:notif.type==="warn"?"#9a3412":"#15803d"}}>
+        <div style={{...S.notif,background:notif.type==="warn"?"#fff7ed":"#f7fce8",borderColor:notif.type==="warn"?"#f0932b":"#7ab529",color:notif.type==="warn"?"#9a3412":"#4a6b0f"}}>
           {notif.type==="warn"?"⚠️":"✅"} {notif.msg}
         </div>
       )}
@@ -337,11 +336,10 @@ function LoginScreen({onLogin}){
 
   return(
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#e8f5eb 0%,#f0f4f0 50%,#e0efe3 100%)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#ffffff",borderRadius:16,padding:40,width:420,maxWidth:"90vw",border:"1px solid #d4e6d8",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
+      <div style={{background:"#ffffff",borderRadius:16,padding:40,width:420,maxWidth:"90vw",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:44,marginBottom:8}}>🏥</div>
-          <div style={{fontSize:20,fontWeight:800,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>Therapie- & Pflegezentrum Westlausitz</div>
-          <div style={{fontSize:13,color:"#6b8f74",marginTop:4,fontWeight:600}}>Urlaubsplaner · Individuelles Funktionstraining</div>
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="TZ Westlausitz" style={{height:80,width:"auto",marginBottom:8}}/>
+          <div style={{fontSize:13,color:"#5a6b4a",marginTop:8,fontWeight:600,letterSpacing:"0.02em"}}>Urlaubsplaner · Individuelles Funktionstraining</div>
         </div>
 
         {!forgotMode?(
@@ -358,7 +356,7 @@ function LoginScreen({onLogin}){
           <>
             {!forgotSent?(
               <>
-                <div style={{fontSize:14,color:"#6b8f74",marginBottom:16,lineHeight:1.5}}>
+                <div style={{fontSize:14,color:"#5a6b4a",marginBottom:16,lineHeight:1.5}}>
                   Gib deine E-Mail-Adresse ein. Der Administrator wird benachrichtigt und setzt dein Passwort zurück.
                 </div>
                 <div style={{marginBottom:14}}><label style={S.lbl}>E-Mail-Adresse</label><input style={S.inp} type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} autoFocus/></div>
@@ -371,7 +369,7 @@ function LoginScreen({onLogin}){
                 <div style={{textAlign:"center",padding:"20px 0"}}>
                   <div style={{fontSize:40,marginBottom:12}}>✅</div>
                   <div style={{fontSize:15,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>Anfrage gesendet!</div>
-                  <div style={{fontSize:13,color:"#6b8f74",lineHeight:1.6}}>Der Administrator wurde benachrichtigt und wird dein Passwort in Kürze zurücksetzen.</div>
+                  <div style={{fontSize:13,color:"#5a6b4a",lineHeight:1.6}}>Der Administrator wurde benachrichtigt und wird dein Passwort in Kürze zurücksetzen.</div>
                 </div>
                 <button onClick={()=>{setForgotMode(false);setForgotSent(false);setErr("");}} style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,marginTop:16}}>← Zurück zum Login</button>
               </>
@@ -453,7 +451,7 @@ function DashView({users,isAdmin,year,onEdit}){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{...S.av,width:40,height:40,fontSize:16,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>
-                  <div><div style={{fontWeight:700,fontSize:15,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#6b8f74",fontWeight:500}}>{u.position||"Trainer"}</div></div>
+                  <div><div style={{fontWeight:700,fontSize:15,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#5a6b4a",fontWeight:500}}>{u.position||"Trainer"}</div></div>
                 </div>
                 {isAdmin&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}
               </div>
@@ -475,7 +473,7 @@ function DashView({users,isAdmin,year,onEdit}){
                         <div style={{width:6,height:6,borderRadius:"50%",background:u.color||"#2563EB",flexShrink:0}}/>
                         <div>
                           <div style={{fontSize:12,color:"#2d3a2e",fontWeight:500}}>{fmtDE(e.von)} – {fmtDE(e.bis)}</div>
-                          <div style={{fontSize:10,color:"#6b8f74"}}>{TL[e.type]||e.type} · {countWD(e.von,e.bis)} T</div>
+                          <div style={{fontSize:10,color:"#5a6b4a"}}>{TL[e.type]||e.type} · {countWD(e.von,e.bis)} T</div>
                         </div>
                       </div>
                       <StBadge status={e.status}/>
@@ -490,7 +488,7 @@ function DashView({users,isAdmin,year,onEdit}){
     </div>
   );
 }
-function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f7faf7",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#6b8f74",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{val}<span style={{color:"#9ab89f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
+function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{val}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
@@ -502,9 +500,9 @@ function MitView({users,onAdd,onEdit,onDelete}){
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
         <button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>
       </div>
-      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f7faf7"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f8faf0"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
               const entries=u.entries||[];
@@ -512,7 +510,7 @@ function MitView({users,onAdd,onEdit,onDelete}){
               return(
                 <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
                   <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{...S.av,width:30,height:30,fontSize:13,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>{u.vorname} {u.nachname}</div></td>
-                  <td style={{...S.td,fontSize:12,color:"#9ab89f"}}>{u.email}</td>
+                  <td style={{...S.td,fontSize:12,color:"#8aaa5f"}}>{u.email}</td>
                   <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{u.role==="admin"?"Admin":"Trainer"}</span></td>
                   <td style={S.td}>{urlT} / {u.urlaubstage||30} T</td>
                   <td style={S.td}>{ueT} / {u.ueberstunden||0} T</td>
@@ -540,9 +538,9 @@ function EintAdmin({entries,profiles,onStatus,onDelete,onAdd,onEdit}){
   function ETable({rows,showAct}){
     if(!rows.length)return null;
     return(
-      <div style={{background:"#fff",borderRadius:10,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
+      <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f7faf7"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f8faf0"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(e=>(
               <tr key={e.id} style={{borderBottom:"1px solid #edf5ee"}}>
@@ -578,7 +576,7 @@ function EintAdmin({entries,profiles,onStatus,onDelete,onAdd,onEdit}){
         </div>
       </div>
       {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct/></>}
-      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#5a9e6f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest}/></>}
+      {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#6a9e2f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest}/></>}
       {rich.length===0&&<div style={{color:"#475569",fontSize:14,padding:24,textAlign:"center"}}>Noch keine Einträge.</div>}
     </div>
   );
@@ -601,13 +599,13 @@ function MeinUrlaub({user,onAdd,onEdit,onDelete}){
           <div key={lb} style={{background:"#fff",borderRadius:10,padding:"12px 16px",border:`1.5px solid ${warn?"#fca5a5":"#d4e6d8"}`,minWidth:90,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
             <div style={{fontSize:20,fontWeight:800,color:warn?"#dc2626":"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{vl}</div>
-            <div style={{fontSize:11,color:"#6b8f74",fontWeight:600}}>{lb}</div>
+            <div style={{fontSize:11,color:"#5a6b4a",fontWeight:600}}>{lb}</div>
           </div>
         ))}
       </div>
-      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f7faf7"}}>{["Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f8faf0"}}>{["Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {entries.length===0&&<tr><td colSpan={6} style={{...S.td,color:"#475569",textAlign:"center",padding:28}}>Noch keine Urlaubsanträge.</td></tr>}
             {[...entries].sort((a,b)=>a.von.localeCompare(b.von)).map(e=>(
@@ -623,7 +621,7 @@ function MeinUrlaub({user,onAdd,onEdit,onDelete}){
           </tbody>
         </table>
       </div>
-      <div style={{marginTop:10,fontSize:11,color:"#9ab89f"}}>Bestätigte Einträge können nur vom Administrator bearbeitet werden.</div>
+      <div style={{marginTop:10,fontSize:11,color:"#8aaa5f"}}>Bestätigte Einträge können nur vom Administrator bearbeitet werden.</div>
     </div>
   );
 }
@@ -649,10 +647,10 @@ function FerView({year,state,stateName}){
           <div style={{fontSize:12,fontWeight:700,color:"#f472b6",marginBottom:10}}>Schulferien ({ferien.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
             {ferien.map(([v,b,n],i)=>(
-              <div key={i} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #d4e6d8",borderLeft:"4px solid #f9a8d4",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
+              <div key={i} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #d5e8a0",borderLeft:"4px solid #f9a8d4",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
                 <div style={{fontWeight:700,fontSize:13,color:"#2d3a2e",marginBottom:3}}>{n}</div>
-                <div style={{fontSize:12,color:"#6b8f74"}}>{fmtDE(v)} – {fmtDE(b)}</div>
-                <div style={{fontSize:11,color:"#9ab89f",marginTop:3}}>{countWD(v,b)} Werktage</div>
+                <div style={{fontSize:12,color:"#5a6b4a"}}>{fmtDE(v)} – {fmtDE(b)}</div>
+                <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>{countWD(v,b)} Werktage</div>
               </div>
             ))}
           </div>
@@ -661,9 +659,9 @@ function FerView({year,state,stateName}){
       {(tab==="feiertage"||tab==="beides")&&(
         <div>
           <div style={{fontSize:12,fontWeight:700,color:"#c9a07a",marginBottom:10}}>Feiertage ({feiertage.length})</div>
-          <div style={{background:"#fff",borderRadius:10,border:"1px solid #d4e6d8",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
+          <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr style={{background:"#f7faf7"}}><th style={S.th}>Datum</th><th style={S.th}>Tag</th><th style={S.th}>Feiertag</th></tr></thead>
+              <thead><tr style={{background:"#f8faf0"}}><th style={S.th}>Datum</th><th style={S.th}>Tag</th><th style={S.th}>Feiertag</th></tr></thead>
               <tbody>{feiertage.map(([iso,name])=>(
                 <tr key={iso} style={{borderBottom:"1px solid #edf5ee"}}>
                   <td style={{...S.td,fontFamily:"monospace",fontSize:12,color:"#92400e",fontWeight:600}}>{fmtDE(iso)}</td>
@@ -709,7 +707,7 @@ function ProfView({user,onSave,onChangePw}){
           <div>
             <div style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{form.vorname} {form.nachname}</div>
             <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#6b8f74",fontWeight:600}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
-            <div style={{fontSize:12,color:"#9ab89f"}}>{user?.email}</div>
+            <div style={{fontSize:12,color:"#8aaa5f"}}>{user?.email}</div>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
@@ -799,7 +797,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
         <div style={S.mBd}>
 
           {/* ── Stammdaten ── */}
-          <div style={{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#6a9e2f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
             <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
             <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
@@ -838,7 +836,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
 
           {/* ── Zugangsdaten (separater Bereich) ── */}
           <div style={{borderTop:"1px solid #334155",paddingTop:14,marginBottom:4}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Zugangsdaten</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#6a9e2f",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Zugangsdaten</div>
 
             {/* E-Mail */}
             <div style={{marginBottom:12}}><label style={S.lbl}>E-Mail-Adresse *</label>
@@ -865,7 +863,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
                   </button>
                 </div>
                 {showPwReset&&(
-                  <div style={{marginTop:10,padding:12,background:"#f7faf7",borderRadius:8,border:"1px solid #d4e6d8",display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{marginTop:10,padding:12,background:"#f8faf0",borderRadius:8,border:"1px solid #d5e8a0",display:"flex",flexDirection:"column",gap:8}}>
                     <div style={{fontSize:11,color:"#92400e",marginBottom:2}}>⚠ Als Admin kannst du das Passwort ohne das alte Passwort zurücksetzen.</div>
                     <div><label style={S.lbl}>Neues Passwort</label>
                       <input style={S.inp} type="password" value={adminPw} onChange={e=>setAdminPw(e.target.value)} placeholder="Mindestens 6 Zeichen"/>
@@ -981,8 +979,8 @@ function PrintList({year,users,stateName}){
 // Hintergrund: Hellgrau-Grün #f0f4f0  Text: Dunkelgrau #2d3a2e
 // Cards: Weiß #ffffff  Border: #d4e6d8
 const S={
-  app:{minHeight:"100vh",background:"#f0f4f0",display:"flex",flexDirection:"column"},
-  header:{background:"#3d7a4f",borderBottom:"none",padding:"0 24px",display:"flex",justifyContent:"space-between",alignItems:"stretch",flexWrap:"wrap",gap:0,boxShadow:"0 2px 12px rgba(61,122,79,0.25)"},
+  app:{minHeight:"100vh",background:"#f5f8ec",display:"flex",flexDirection:"column"},
+  header:{background:"linear-gradient(135deg,#5a8a1f 0%,#6a9e2f 100%)",borderBottom:"none",padding:"0 24px",display:"flex",justifyContent:"space-between",alignItems:"stretch",flexWrap:"wrap",gap:0,boxShadow:"0 2px 12px rgba(61,122,79,0.25)"},
   hL:{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",padding:"12px 0"},
   hR:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"12px 0"},
   logoTxt:{fontSize:16,fontWeight:800,color:"#ffffff",letterSpacing:"-0.01em",fontFamily:"'Nunito',sans-serif"},
@@ -995,35 +993,35 @@ const S={
   av:{width:34,height:34,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#fff",flexShrink:0,fontSize:14},
   pBtn:{background:"rgba(255,255,255,0.18)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"},
   nav:{background:"#ffffff",borderBottom:"1px solid #d4e6d8",padding:"0 24px",display:"flex",alignItems:"center",gap:2,overflowX:"auto",boxShadow:"0 1px 4px rgba(61,122,79,0.08)"},
-  navBtn:{background:"none",border:"none",color:"#6b8f74",padding:"13px 14px",fontSize:13,fontWeight:600,borderBottom:"3px solid transparent",whiteSpace:"nowrap",cursor:"pointer",transition:"color .15s"},
-  navAct:{color:"#3d7a4f",borderBottom:"3px solid #3d7a4f"},
+  navBtn:{background:"none",border:"none",color:"#5a6b4a",padding:"13px 14px",fontSize:13,fontWeight:600,borderBottom:"3px solid transparent",whiteSpace:"nowrap",cursor:"pointer",transition:"color .15s"},
+  navAct:{color:"#5a8a1f",borderBottom:"3px solid #5a8a1f"},
   pendBadge:{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,marginLeft:6,border:"1px solid #fde68a"},
   legend:{marginLeft:"auto",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",paddingLeft:12},
-  legItem:{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#6b8f74"},
+  legItem:{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#5a6b4a"},
   legDot:{width:9,height:9,borderRadius:"50%"},
   notif:{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",borderRadius:10,padding:"11px 22px",zIndex:2500,fontSize:13,boxShadow:"0 8px 32px rgba(61,122,79,0.2)",maxWidth:"90vw",textAlign:"center",border:"1px solid",fontWeight:500},
   main:{flex:1,padding:20,overflowY:"auto"},
-  mCard:{background:"#ffffff",borderRadius:12,padding:12,border:"1px solid #d4e6d8",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"},
-  mTitle:{fontSize:11,fontWeight:700,color:"#5a9e6f",marginBottom:7,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"},
+  mCard:{background:"#ffffff",borderRadius:12,padding:12,border:"1px solid #d5e8a0",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"},
+  mTitle:{fontSize:11,fontWeight:700,color:"#6a9e2f",marginBottom:7,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"},
   cGrid:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2},
-  dHd:{textAlign:"center",fontSize:8,fontWeight:700,color:"#9ab89f",padding:"3px 0"},
+  dHd:{textAlign:"center",fontSize:8,fontWeight:700,color:"#8aaa5f",padding:"3px 0"},
   dCell:{textAlign:"center",padding:"2px 0",borderRadius:3,minHeight:22,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"},
-  card:{background:"#ffffff",borderRadius:14,padding:20,border:"1px solid #d4e6d8",boxShadow:"0 2px 10px rgba(61,122,79,0.07)"},
+  card:{background:"#ffffff",borderRadius:14,padding:20,border:"1px solid #d5e8a0",boxShadow:"0 2px 10px rgba(61,122,79,0.07)"},
   pgT:{fontSize:20,fontWeight:800,color:"#2d3a2e",marginBottom:18,fontFamily:"'Nunito',sans-serif"},
-  addBtn:{background:"#3d7a4f",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
-  icnBtn:{background:"#f0f4f0",border:"1px solid #d4e6d8",color:"#5a9e6f",borderRadius:6,padding:"4px 8px",fontSize:13,cursor:"pointer"},
-  th:{textAlign:"left",padding:"10px 14px",fontSize:11,fontWeight:700,color:"#6b8f74",textTransform:"uppercase",letterSpacing:"0.05em",background:"#f7faf7"},
+  addBtn:{background:"#5a8a1f",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
+  icnBtn:{background:"#f5f8ec",border:"1px solid #d5e8a0",color:"#6a9e2f",borderRadius:6,padding:"4px 8px",fontSize:13,cursor:"pointer"},
+  th:{textAlign:"left",padding:"10px 14px",fontSize:11,fontWeight:700,color:"#5a6b4a",textTransform:"uppercase",letterSpacing:"0.05em",background:"#f8faf0"},
   td:{padding:"10px 14px",fontSize:13,color:"#2d3a2e",borderBottom:"1px solid #edf5ee"},
   overlay:{position:"fixed",inset:0,background:"rgba(45,58,46,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1500,backdropFilter:"blur(4px)"},
-  modal:{background:"#ffffff",borderRadius:16,width:500,maxWidth:"95vw",border:"1px solid #d4e6d8",boxShadow:"0 20px 60px rgba(61,122,79,0.18)"},
+  modal:{background:"#ffffff",borderRadius:16,width:500,maxWidth:"95vw",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.18)"},
   mHd:{padding:"18px 22px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #edf5ee"},
   mBd:{padding:"18px 22px"},
   mFt:{padding:"14px 22px 18px",display:"flex",gap:10,borderTop:"1px solid #edf5ee"},
-  inp:{width:"100%",background:"#f7faf7",border:"1.5px solid #c8deca",borderRadius:8,padding:"9px 12px",color:"#2d3a2e",fontSize:13,outline:"none",boxSizing:"border-box",transition:"border .15s"},
-  lbl:{display:"block",fontSize:11,fontWeight:700,color:"#6b8f74",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"},
-  savBtn:{background:"#3d7a4f",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
-  canBtn:{background:"#f0f4f0",color:"#6b8f74",border:"1px solid #d4e6d8",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",fontWeight:600},
-  clsBtn:{background:"none",border:"none",color:"#9ab89f",fontSize:20,lineHeight:1,padding:"2px 6px",cursor:"pointer"},
-  tabTgl:{background:"none",border:"none",color:"#9ab89f",padding:"7px 13px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},
-  tabTglAct:{background:"#e8f5eb",color:"#3d7a4f",fontWeight:700},
+  inp:{width:"100%",background:"#f8faf0",border:"1.5px solid #c8d890",borderRadius:8,padding:"9px 12px",color:"#2d3a2e",fontSize:13,outline:"none",boxSizing:"border-box",transition:"border .15s"},
+  lbl:{display:"block",fontSize:11,fontWeight:700,color:"#5a6b4a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"},
+  savBtn:{background:"#5a8a1f",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
+  canBtn:{background:"#f5f8ec",color:"#5a6b4a",border:"1px solid #d5e8a0",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",fontWeight:600},
+  clsBtn:{background:"none",border:"none",color:"#8aaa5f",fontSize:20,lineHeight:1,padding:"2px 6px",cursor:"pointer"},
+  tabTgl:{background:"none",border:"none",color:"#8aaa5f",padding:"7px 13px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},
+  tabTglAct:{background:"#e8f5eb",color:"#5a8a1f",fontWeight:700},
 };
