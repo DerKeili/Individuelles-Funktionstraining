@@ -44,6 +44,8 @@ export default function App(){
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
   const [tooltip,setTooltip]=useState(null);
+  const [profileDirty,setProfileDirty]=useState(false); // hat Profil ungespeicherte Änderungen?
+  const [pendingView,setPendingView]=useState(null);    // wohin wechseln nach Bestätigung?
   const [printMode,setPrintMode]=useState(null);
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
@@ -211,6 +213,15 @@ export default function App(){
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
 
+  // Navigation mit Ungespeichert-Prüfung
+  function handleNavClick(id){
+    if(view==="profil"&&profileDirty&&id!=="profil"){
+      setPendingView(id); // Dialog öffnen
+    } else {
+      setView(id);
+    }
+  }
+
   const navItems=isAdmin
     ?[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["mitarbeiter","👥 Mitarbeiter"],["eintraege","📋 Einträge"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]]
     :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]];
@@ -254,7 +265,7 @@ export default function App(){
       {/* NAV */}
       <nav style={S.nav}>
         {navItems.map(([id,lbl])=>(
-          <button key={id} style={{...S.navBtn,...(view===id?S.navAct:{})}} onClick={()=>setView(id)}>{lbl}</button>
+          <button key={id} style={{...S.navBtn,...(view===id?S.navAct:{})}} onClick={()=>handleNavClick(id)}>{lbl}</button>
         ))}
         {isAdmin&&pendingCount>0&&<div style={S.pendBadge}>{pendingCount} ausstehend</div>}
         <div style={S.legend}>
@@ -281,7 +292,7 @@ export default function App(){
         {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} onStatus={handleSetStatus} onDelete={async id=>{if(window.confirm("Löschen?"))await handleDeleteEntry(id);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async id=>{if(window.confirm("Löschen?"))await handleDeleteEntry(id);}}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
-        {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>handleUpdateProfile(id,d)} onChangePw={handleChangePw}/>}
+        {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
       </main>
 
       {/* TOOLTIP */}
@@ -289,6 +300,31 @@ export default function App(){
         <div style={{position:"fixed",left:Math.min(tooltip.x+14,window.innerWidth-250),top:Math.max(tooltip.y-8,60),background:"#1e293b",border:"1px solid #334155",borderRadius:10,padding:"10px 14px",zIndex:3000,boxShadow:"0 12px 32px rgba(0,0,0,0.5)",pointerEvents:"none",maxWidth:250}}>
           <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>{tooltip.date}</div>
           {tooltip.lines.map((l,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}><div style={{width:8,height:8,borderRadius:"50%",background:l.color,flexShrink:0}}/><span style={{fontSize:12,color:"#f1f5f9"}}>{l.text}</span></div>)}
+        </div>
+      )}
+
+      {/* Dialog: Ungespeicherte Profiländerungen */}
+      {pendingView&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(45,58,46,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,backdropFilter:"blur(4px)"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:380,maxWidth:"90vw",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.18)",textAlign:"center"}}>
+            <div style={{fontSize:36,marginBottom:12}}>💾</div>
+            <div style={{fontSize:17,fontWeight:800,color:"#2d3a2e",marginBottom:8,fontFamily:"'Nunito',sans-serif"}}>Ungespeicherte Änderungen</div>
+            <div style={{fontSize:14,color:"#5a6b4a",marginBottom:24,lineHeight:1.6}}>Du hast Änderungen in deinem Profil vorgenommen. Möchtest du diese speichern oder verwerfen?</div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              <button style={{...S.savBtn,minWidth:120}} onClick={async()=>{
+                // Speichern dann wechseln - ProfView muss save triggern
+                // Wir setzen pendingView und schicken ein Custom-Event
+                window.dispatchEvent(new CustomEvent("profil-save-and-leave",{detail:{target:pendingView}}));
+                setPendingView(null);
+              }}>💾 Speichern</button>
+              <button style={{background:"#fee2e2",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",minWidth:120}} onClick={()=>{
+                setProfileDirty(false);
+                setView(pendingView);
+                setPendingView(null);
+              }}>🗑 Verwerfen</button>
+              <button style={{...S.canBtn,minWidth:120}} onClick={()=>setPendingView(null)}>Abbrechen</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -678,7 +714,7 @@ function FerView({year,state,stateName}){
 }
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
-function ProfView({user,onSave,onChangePw}){
+function ProfView({user,onSave,onChangePw,onDirtyChange}){
   // Zahlenfelder als String speichern → kein "0" Prefix Problem
   const[form,setForm]=useState({
     vorname:user?.vorname||"",
@@ -697,16 +733,54 @@ function ProfView({user,onSave,onChangePw}){
   const[showCur,setShowCur]=useState(false);
   const[showNew,setShowNew]=useState(false);
   const[busy,setBusy]=useState(false);
+  const[saved,setSaved]=useState(false); // kurze Bestätigungsanzeige
 
-  async function saveProfile(){
+  // Formularfelder überwachen → dirty melden
+  const initialRef = useRef(null);
+  useEffect(()=>{
+    initialRef.current = {
+      vorname:user?.vorname||"",nachname:user?.nachname||"",
+      geburtsdatum:user?.geburtsdatum||"",position:user?.position||"",
+      color:user?.color||"#5a8a1f",
+      urlaubstage:String(user?.urlaubstage??30),
+      ueberstunden:String(user?.ueberstunden??0),
+    };
+  },[user]);
+
+  useEffect(()=>{
+    if(!initialRef.current)return;
+    const dirty=Object.keys(form).some(k=>form[k]!==initialRef.current[k]);
+    onDirtyChange?.(dirty);
+  },[form]);
+
+  // Auf "Speichern und wechseln"-Event vom Dialog hören
+  useEffect(()=>{
+    async function handle(e){
+      await doSave();
+      // nach save wechselt App automatisch weil dirty=false gesetzt wurde
+    }
+    window.addEventListener("profil-save-and-leave",handle);
+    return()=>window.removeEventListener("profil-save-and-leave",handle);
+  },[form]);
+
+  async function doSave(){
     setBusy(true);
-    try{await onSave(user.id,{
-      ...form,
-      urlaubstage:parseInt(form.urlaubstage)||0,
-      ueberstunden:parseInt(form.ueberstunden)||0,
-    });}
-    finally{setBusy(false);}
+    try{
+      await onSave(user.id,{
+        ...form,
+        urlaubstage:parseInt(form.urlaubstage)||0,
+        ueberstunden:parseInt(form.ueberstunden)||0,
+      });
+      // Initialwerte aktualisieren
+      initialRef.current={...form};
+      onDirtyChange?.(false);
+      setSaved(true);
+      setTimeout(()=>setSaved(false),2500);
+    }finally{setBusy(false);}
   }
+
+  async function saveProfile(){ await doSave(); }
+
   async function changePw(){
     if(!curPw){setPwMsg("Bitte aktuelles Passwort eingeben.");return;}
     if(npass.length<6){setPwMsg("Mindestens 6 Zeichen.");return;}
@@ -715,6 +789,10 @@ function ProfView({user,onSave,onChangePw}){
     try{await onChangePw(curPw,npass);setCurPw("");setNpass("");setNpass2("");setPwMode(false);setPwMsg("");}
     catch(e){setPwMsg(e.message);}
     finally{setBusy(false);}
+  }
+
+  function updateForm(key,val){
+    setForm(f=>({...f,[key]:val}));
   }
   return(
     <div style={{maxWidth:580}}>
@@ -734,35 +812,35 @@ function ProfView({user,onSave,onChangePw}){
           {/* Zeile 1: Vorname + Nachname */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div><label style={S.lbl}>Vorname</label>
-              <input style={S.inp} value={form.vorname} onChange={e=>setForm(f=>({...f,vorname:e.target.value}))}/>
+              <input style={S.inp} value={form.vorname} onChange={e=>updateForm("vorname",e.target.value)}/>
             </div>
             <div><label style={S.lbl}>Nachname</label>
-              <input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/>
+              <input style={S.inp} value={form.nachname} onChange={e=>updateForm("nachname",e.target.value)}/>
             </div>
           </div>
           {/* Zeile 2: Position */}
           <div><label style={S.lbl}>Position</label>
             <input style={S.inp} value={form.position}
-              onChange={e=>setForm(f=>({...f,position:e.target.value}))}/>
+              onChange={e=>updateForm("position",e.target.value)}/>
           </div>
           {/* Zeile 3: Geburtsdatum alleine - iOS date braucht volle Breite */}
           <div style={{maxWidth:240}}>
             <label style={S.lbl}>Geburtsdatum</label>
             <input style={S.inp} type="date" value={form.geburtsdatum}
-              onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/>
+              onChange={e=>updateForm("geburtsdatum",e.target.value)}/>
           </div>
           {/* Zeile 3: Urlaubstage + Überstunden */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={form.urlaubstage}
-                onChange={e=>setForm(f=>({...f,urlaubstage:e.target.value.replace(/[^0-9]/g,"")}))}
+                onChange={e=>updateForm("urlaubstage",e.target.value.replace(/[^0-9]/g,""))}
                 onFocus={e=>e.target.select()}/>
             </div>
             <div><label style={S.lbl}>Überstunden (Tage)</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={form.ueberstunden}
-                onChange={e=>setForm(f=>({...f,ueberstunden:e.target.value.replace(/[^0-9]/g,"")}))}
+                onChange={e=>updateForm("ueberstunden",e.target.value.replace(/[^0-9]/g,""))}
                 onFocus={e=>e.target.select()}/>
             </div>
           </div>
@@ -770,11 +848,12 @@ function ProfView({user,onSave,onChangePw}){
 
         <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {PRESET_COLORS.map(c=><div key={c} onClick={()=>setForm(f=>({...f,color:c}))} style={{width:28,height:28,borderRadius:6,background:c,cursor:"pointer",outline:form.color===c?"3px solid #2d3a2e":"none",outlineOffset:2}}/>)}
-            <input type="color" value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))} style={{width:32,height:32,border:"none",borderRadius:6,cursor:"pointer"}}/>
+            {PRESET_COLORS.map(c=><div key={c} onClick={()=>updateForm("color",c)} style={{width:28,height:28,borderRadius:6,background:c,cursor:"pointer",outline:form.color===c?"3px solid #2d3a2e":"none",outlineOffset:2}}/>)}
+            <input type="color" value={form.color} onChange={e=>updateForm("color",e.target.value)} style={{width:32,height:32,border:"none",borderRadius:6,cursor:"pointer"}}/>
           </div>
         </div>
-        <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveProfile} disabled={busy}>Profil speichern</button>
+        {saved&&<div style={{padding:"8px 14px",background:"#dcfce7",color:"#15803d",borderRadius:8,fontSize:13,fontWeight:600,marginBottom:8,border:"1px solid #86efac"}}>✅ Profil erfolgreich gespeichert!</div>}
+        <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveProfile} disabled={busy}>{busy?"Speichern…":"Profil speichern"}</button>
         <div style={{marginTop:24,borderTop:"1px solid #edf5d8",paddingTop:20}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pwMode?14:0}}>
             <div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>🔐 Passwort</div>
