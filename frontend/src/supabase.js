@@ -4,7 +4,26 @@ const SUPABASE_URL = "https://meufjnmmucsvmtlnoazg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldWZqbm1tdWNzdm10bG5vYXpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMjQ1NDQsImV4cCI6MjA5OTYwMDU0NH0.4ginPuHoWlXHXDb_RJOzQT2RiMWKK9k5l0y2uoj9FIY";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    // Automatisch Token erneuern bei Timing-Problemen
+    flowType: "implicit",
+  },
+  global: {
+    headers: {
+      // Toleranz für Zeitabweichungen (JWT clock skew)
+      "x-client-info": "urlaubsplaner/1.0",
+    },
+  },
+});
+
+// Token bei Zeitproblemen automatisch erneuern
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === "TOKEN_REFRESHED") {
+    console.log("Token erneuert");
+  }
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -35,7 +54,7 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(error.message);
   return data;
 }
-export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub }) {
+export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum }) {
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email, password,
     options: { data: { vorname, nachname, role: role || "trainer" } },
