@@ -740,17 +740,16 @@ function ProfView({user,onSave,onChangePw}){
               <input style={S.inp} value={form.nachname} onChange={e=>setForm(f=>({...f,nachname:e.target.value}))}/>
             </div>
           </div>
-          {/* Zeile 2: Geburtsdatum (schmal, fixe Breite) + Position */}
-          <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:12}}>
-            <div>
-              <label style={S.lbl}>Geburtsdatum</label>
-              <input style={{...S.inp,padding:"8px 8px"}} type="date" value={form.geburtsdatum}
-                onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/>
-            </div>
-            <div><label style={S.lbl}>Position</label>
-              <input style={S.inp} value={form.position}
-                onChange={e=>setForm(f=>({...f,position:e.target.value}))}/>
-            </div>
+          {/* Zeile 2: Position */}
+          <div><label style={S.lbl}>Position</label>
+            <input style={S.inp} value={form.position}
+              onChange={e=>setForm(f=>({...f,position:e.target.value}))}/>
+          </div>
+          {/* Zeile 3: Geburtsdatum alleine - iOS date braucht volle Breite */}
+          <div style={{maxWidth:240}}>
+            <label style={S.lbl}>Geburtsdatum</label>
+            <input style={S.inp} type="date" value={form.geburtsdatum}
+              onChange={e=>setForm(f=>({...f,geburtsdatum:e.target.value}))}/>
           </div>
           {/* Zeile 3: Urlaubstage + Überstunden */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -854,10 +853,8 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
               <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
               <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:12}}>
-              <div><label style={S.lbl}>Geburtsdatum</label><input style={{...S.inp,padding:"8px 6px"}} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
-              <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
-            </div>
+            <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
+            <div style={{maxWidth:240}}><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={f.urlaubstage}
