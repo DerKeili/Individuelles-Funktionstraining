@@ -4,6 +4,8 @@ import {
   getProfile, getAllProfiles, updateProfile, createUser, deleteUser,
   getAllEntries, getMyEntries, getConfirmedEntries,
   createEntry, updateEntry, setEntryStatus, deleteEntry, checkConflicts,
+  adminResetPassword, requestPasswordReset,
+  getPasswordResetRequests, dismissResetRequest,
 } from "./supabase.js";
 
 // ─── Feiertagsdaten 2025–2027 (alle 16 Bundesländer) ─────────────────────────
@@ -172,6 +174,10 @@ export default function App(){
     await loadEntries(isAdmin,session.user.id);
     notify("Eintrag gelöscht.");
   }
+  async function handleAdminResetPw(userId,newPw){
+    const{error}=await supabase.rpc("admin_reset_password",{target_user_id:userId,new_password:newPw});
+    if(error)throw new Error("Passwort konnte nicht zurückgesetzt werden: "+error.message);
+  }
   async function handleChangePw(currentPw,newPw){
     // Supabase: zuerst neu-anmelden zum Verifizieren, dann updaten
     const{error:loginErr}=await supabase.auth.signInWithPassword({email:profile.email,password:currentPw});
@@ -302,6 +308,10 @@ function LoginScreen({onLogin}){
   const [showPw,setShowPw]=useState(false);
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState(false);
+  const [forgotMode,setForgotMode]=useState(false);
+  const [forgotEmail,setForgotEmail]=useState("");
+  const [forgotSent,setForgotSent]=useState(false);
+
   async function submit(){
     if(!email||!pw){setErr("Bitte E-Mail und Passwort eingeben.");return;}
     setBusy(true);setErr("");
@@ -309,18 +319,60 @@ function LoginScreen({onLogin}){
     catch(e){setErr(e.message);}
     finally{setBusy(false);}
   }
+
+  async function sendForgotRequest(){
+    if(!forgotEmail){setErr("Bitte E-Mail eingeben.");return;}
+    setBusy(true);setErr("");
+    try{
+      await requestPasswordReset(forgotEmail);
+      setForgotSent(true);
+    }catch(e){setErr("Anfrage konnte nicht gesendet werden.");}
+    finally{setBusy(false);}
+  }
+
   return(
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#1e293b",borderRadius:16,padding:40,width:380,maxWidth:"90vw",border:"1px solid #334155",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+      <div style={{background:"#1e293b",borderRadius:16,padding:40,width:400,maxWidth:"90vw",border:"1px solid #334155",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{fontSize:44,marginBottom:8}}>📅</div>
           <div style={{fontSize:22,fontWeight:700,color:"#f1f5f9"}}>Urlaubsplaner</div>
           <div style={{fontSize:13,color:"#64748b",marginTop:4}}>TZ Westlausitz</div>
         </div>
-        <div style={{marginBottom:14}}><label style={S.lbl}>E-Mail</label><input style={S.inp} type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} autoFocus placeholder="name@tz-westlausitz.de"/></div>
-        <div style={{marginBottom:20,position:"relative"}}><label style={S.lbl}>Passwort</label><input style={S.inp} type={showPw?"text":"password"} value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/><button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button></div>
-        {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6,border:"1px solid rgba(248,113,113,0.2)"}}>{err}</div>}
-        <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1}} onClick={submit} disabled={busy}>{busy?"Anmelden…":"Anmelden"}</button>
+
+        {!forgotMode?(
+          <>
+            <div style={{marginBottom:14}}><label style={S.lbl}>E-Mail</label><input style={S.inp} type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} autoFocus placeholder="name@tz-westlausitz.de"/></div>
+            <div style={{marginBottom:8,position:"relative"}}><label style={S.lbl}>Passwort</label><input style={S.inp} type={showPw?"text":"password"} value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/><button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button></div>
+            <div style={{textAlign:"right",marginBottom:16}}>
+              <button onClick={()=>{setForgotMode(true);setForgotEmail(email);setErr("");}} style={{background:"none",border:"none",color:"#64748b",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Passwort vergessen?</button>
+            </div>
+            {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6,border:"1px solid rgba(248,113,113,0.2)"}}>{err}</div>}
+            <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1}} onClick={submit} disabled={busy}>{busy?"Anmelden…":"Anmelden"}</button>
+          </>
+        ):(
+          <>
+            {!forgotSent?(
+              <>
+                <div style={{fontSize:14,color:"#94a3b8",marginBottom:16,lineHeight:1.5}}>
+                  Gib deine E-Mail-Adresse ein. Der Administrator wird benachrichtigt und setzt dein Passwort zurück.
+                </div>
+                <div style={{marginBottom:14}}><label style={S.lbl}>E-Mail-Adresse</label><input style={S.inp} type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} autoFocus/></div>
+                {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:12,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6}}>{err}</div>}
+                <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1,marginBottom:10}} onClick={sendForgotRequest} disabled={busy}>{busy?"Senden…":"Anfrage senden"}</button>
+                <button onClick={()=>{setForgotMode(false);setErr("");}} style={{width:"100%",background:"none",border:"none",color:"#64748b",fontSize:13,cursor:"pointer",padding:"8px 0"}}>← Zurück zum Login</button>
+              </>
+            ):(
+              <>
+                <div style={{textAlign:"center",padding:"20px 0"}}>
+                  <div style={{fontSize:40,marginBottom:12}}>✅</div>
+                  <div style={{fontSize:15,fontWeight:600,color:"#f1f5f9",marginBottom:8}}>Anfrage gesendet!</div>
+                  <div style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>Der Administrator wurde benachrichtigt und wird dein Passwort in Kürze zurücksetzen.</div>
+                </div>
+                <button onClick={()=>{setForgotMode(false);setForgotSent(false);setErr("");}} style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,marginTop:16}}>← Zurück zum Login</button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -691,37 +743,143 @@ function ProfView({user,onSave,onChangePw}){
 }
 
 // ─── User Modal ───────────────────────────────────────────────────────────────
-function UserModal({title,initial,isAdmin,onSave,onClose}){
-  const[f,setF]=useState({vorname:initial?.vorname||"",nachname:initial?.nachname||"",email:initial?.email||"",password:"",role:initial?.role||"trainer",color:initial?.color||PRESET_COLORS[0],position:initial?.position||"Trainer",geburtsdatum:initial?.geburtsdatum||"",urlaubstage:initial?.urlaubstage??30,ueberstunden:initial?.ueberstunden??0,resturlaub:initial?.resturlaub??0,...(initial?{id:initial.id}:{})});
-  const[showPw,setShowPw]=useState(false),[busy,setBusy]=useState(false);
-  async function save(){if(!f.vorname||!f.email){alert("Vorname und E-Mail sind Pflicht.");return;}if(!initial&&!f.password){alert("Passwort erforderlich.");return;}setBusy(true);try{await onSave(f);}finally{setBusy(false);}}
+function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw}){
+  const[f,setF]=useState({
+    vorname:initial?.vorname||"",nachname:initial?.nachname||"",
+    email:initial?.email||"",role:initial?.role||"trainer",
+    color:initial?.color||PRESET_COLORS[0],position:initial?.position||"Trainer",
+    geburtsdatum:initial?.geburtsdatum||"",
+    urlaubstage:initial?.urlaubstage??30,
+    ueberstunden:initial?.ueberstunden??0,
+    resturlaub:initial?.resturlaub??0,
+    ...(initial?{id:initial.id}:{})
+  });
+  // Für neuen User: Passwort
+  const[newUserPw,setNewUserPw]=useState("");
+  const[showPw,setShowPw]=useState(false);
+  // Admin-Passwort-Reset für bestehenden User
+  const[showPwReset,setShowPwReset]=useState(false);
+  const[adminPw,setAdminPw]=useState("");
+  const[adminPw2,setAdminPw2]=useState("");
+  const[pwErr,setPwErr]=useState("");
+  const[busy,setBusy]=useState(false);
+
+  // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
+  function numFocus(e){if(e.target.value==="0")e.target.select();}
+
+  async function save(){
+    if(!f.vorname||!f.email){alert("Vorname und E-Mail sind Pflicht.");return;}
+    if(!initial&&!newUserPw){alert("Passwort für neuen Mitarbeiter erforderlich.");return;}
+    setBusy(true);
+    try{await onSave({...f,...(!initial?{password:newUserPw}:{})});}
+    finally{setBusy(false);}
+  }
+
+  async function saveAdminPwReset(){
+    if(adminPw.length<6){setPwErr("Mindestens 6 Zeichen.");return;}
+    if(adminPw!==adminPw2){setPwErr("Passwörter stimmen nicht überein.");return;}
+    setBusy(true);
+    try{
+      await onResetPw(initial.id,adminPw);
+      setShowPwReset(false);setAdminPw("");setAdminPw2("");setPwErr("");
+      alert("Passwort wurde zurückgesetzt.");
+    }catch(e){setPwErr(e.message);}
+    finally{setBusy(false);}
+  }
+
   return(
     <div style={S.overlay}>
-      <div style={{...S.modal,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{...S.modal,maxHeight:"92vh",overflowY:"auto",width:520}}>
         <div style={S.mHd}><span style={{fontWeight:700,fontSize:16}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
         <div style={S.mBd}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+
+          {/* ── Stammdaten ── */}
+          <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Stammdaten</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
             <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
             <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
-            <div><label style={S.lbl}>E-Mail *</label><input style={S.inp} type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))}/></div>
-            <div><label style={S.lbl}>{initial?"Neues Passwort":"Passwort *"}</label>
-              <div style={{position:"relative"}}><input style={S.inp} type={showPw?"text":"password"} value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} placeholder={initial?"leer = unverändert":""}/><button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:8,top:8,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button></div>
-            </div>
             <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
             <div><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
-            <div><label style={S.lbl}>Urlaubstage / Jahr</label><input style={S.inp} type="number" min={0} value={f.urlaubstage} onChange={e=>setF(p=>({...p,urlaubstage:+e.target.value}))}/></div>
-            <div><label style={S.lbl}>Überstunden (Tage)</label><input style={S.inp} type="number" min={0} value={f.ueberstunden} onChange={e=>setF(p=>({...p,ueberstunden:+e.target.value}))}/></div>
-            <div><label style={S.lbl}>Resturlaub Vorjahr</label><input style={S.inp} type="number" min={0} value={f.resturlaub} onChange={e=>setF(p=>({...p,resturlaub:+e.target.value}))}/></div>
-            {isAdmin&&<div><label style={S.lbl}>Rolle</label><select style={S.inp} value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}><option value="trainer">Trainer</option><option value="admin">Admin</option></select></div>}
+            <div><label style={S.lbl}>Urlaubstage / Jahr</label>
+              <input style={S.inp} type="number" min={0} value={f.urlaubstage}
+                onFocus={numFocus}
+                onChange={e=>setF(p=>({...p,urlaubstage:e.target.value===""?0:+e.target.value}))}/>
+            </div>
+            <div><label style={S.lbl}>Überstunden (Tage)</label>
+              <input style={S.inp} type="number" min={0} value={f.ueberstunden}
+                onFocus={numFocus}
+                onChange={e=>setF(p=>({...p,ueberstunden:e.target.value===""?0:+e.target.value}))}/>
+            </div>
+            <div><label style={S.lbl}>Resturlaub Vorjahr</label>
+              <input style={S.inp} type="number" min={0} value={f.resturlaub}
+                onFocus={numFocus}
+                onChange={e=>setF(p=>({...p,resturlaub:e.target.value===""?0:+e.target.value}))}/>
+            </div>
+            {isAdmin&&<div><label style={S.lbl}>Rolle</label>
+              <select style={S.inp} value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
+                <option value="trainer">Trainer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>}
           </div>
-          <div style={{marginTop:14}}><label style={S.lbl}>Farbe</label>
+
+          {/* ── Farbe ── */}
+          <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
               {PRESET_COLORS.map(c=><div key={c} onClick={()=>setF(p=>({...p,color:c}))} style={{width:26,height:26,borderRadius:5,background:c,cursor:"pointer",outline:f.color===c?"3px solid #fff":"none",outlineOffset:2}}/>)}
               <input type="color" value={f.color} onChange={e=>setF(p=>({...p,color:e.target.value}))} style={{width:30,height:30,border:"none",borderRadius:5,cursor:"pointer"}}/>
             </div>
           </div>
+
+          {/* ── Zugangsdaten (separater Bereich) ── */}
+          <div style={{borderTop:"1px solid #334155",paddingTop:14,marginBottom:4}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Zugangsdaten</div>
+
+            {/* E-Mail */}
+            <div style={{marginBottom:12}}><label style={S.lbl}>E-Mail-Adresse *</label>
+              <input style={S.inp} type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))}/>
+            </div>
+
+            {/* Neuer User: Passwort */}
+            {!initial&&(
+              <div><label style={S.lbl}>Passwort *</label>
+                <div style={{position:"relative"}}>
+                  <input style={S.inp} type={showPw?"text":"password"} value={newUserPw} onChange={e=>setNewUserPw(e.target.value)}/>
+                  <button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:8,top:8,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button>
+                </div>
+              </div>
+            )}
+
+            {/* Bestehender User: Admin kann Passwort zurücksetzen */}
+            {initial&&isAdmin&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"#64748b"}}>Passwort des Mitarbeiters zurücksetzen</span>
+                  <button onClick={()=>{setShowPwReset(v=>!v);setPwErr("");}} style={{...S.canBtn,fontSize:11,padding:"4px 10px"}}>
+                    {showPwReset?"Abbrechen":"Passwort zurücksetzen"}
+                  </button>
+                </div>
+                {showPwReset&&(
+                  <div style={{marginTop:10,padding:12,background:"#0f172a",borderRadius:8,display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{fontSize:11,color:"#fbbf24",marginBottom:2}}>⚠ Als Admin kannst du das Passwort ohne das alte Passwort zurücksetzen.</div>
+                    <div><label style={S.lbl}>Neues Passwort</label>
+                      <input style={S.inp} type="password" value={adminPw} onChange={e=>setAdminPw(e.target.value)} placeholder="Mindestens 6 Zeichen"/>
+                    </div>
+                    <div><label style={S.lbl}>Neues Passwort bestätigen</label>
+                      <input style={S.inp} type="password" value={adminPw2} onChange={e=>setAdminPw2(e.target.value)}/>
+                    </div>
+                    {pwErr&&<div style={{fontSize:12,color:"#f87171",background:"rgba(248,113,113,0.1)",padding:"6px 10px",borderRadius:6}}>{pwErr}</div>}
+                    <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveAdminPwReset} disabled={busy}>Passwort jetzt zurücksetzen</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={S.mFt}><button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>Speichern</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
+        <div style={S.mFt}>
+          <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>Speichern</button>
+          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
       </div>
     </div>
   );
