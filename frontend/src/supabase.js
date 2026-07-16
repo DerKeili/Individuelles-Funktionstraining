@@ -55,31 +55,26 @@ export async function updateProfile(userId, updates) {
   return data;
 }
 export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum }) {
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email, password,
-    options: { data: { vorname, nachname, role: role || "trainer" } },
+  // Admin-Session NICHT überschreiben → User direkt per RPC anlegen
+  const { data, error } = await supabase.rpc("admin_create_user", {
+    p_email: email,
+    p_password: password,
+    p_vorname: vorname || "",
+    p_nachname: nachname || "",
+    p_role: role || "trainer",
+    p_position: position || "Trainer",
+    p_color: color || "#5a8a1f",
+    p_urlaubstage: urlaubstage ?? 26,
+    p_ueberstunden: ueberstunden ?? 0,
+    p_resturlaub: resturlaub ?? 0,
+    p_einstellungsdatum: einstellungsdatum || null,
+    p_geburtsdatum: geburtsdatum || null,
   });
-  if (authError) throw new Error(authError.message);
-  const userId = authData.user?.id;
-  if (!userId) throw new Error("User-ID nicht erhalten");
-
-  // E-Mail sofort bestätigen damit User sich direkt einloggen kann
-  try {
-    await supabase.rpc("admin_confirm_user", { target_user_id: userId });
-  } catch (e) {
-    console.warn("Auto-confirm:", e.message);
-  }
-  const { data, error } = await supabase.from("profiles").upsert({
-    id: userId, email, role: role || "trainer",
-    vorname, nachname, position: position || "Trainer",
-    color: color || "#2563EB",
-    urlaubstage: urlaubstage ?? 30,
-    ueberstunden: ueberstunden ?? 0,
-    resturlaub: resturlaub ?? 0,
-  }).select().single();
   if (error) throw new Error(error.message);
   return data;
 }
+
+
 export async function deleteUser(userId) {
   const { error } = await supabase.from("profiles").delete().eq("id", userId);
   if (error) throw new Error(error.message);
@@ -152,4 +147,54 @@ export async function getPasswordResetRequests() {
 export async function dismissResetRequest(id) {
   const { error } = await supabase.from("password_reset_requests").update({ status: "done" }).eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// ─── Nachrichten zu Einträgen ─────────────────────────────────────────────────
+// Speichert eine Nachricht (z.B. Ablehnungsgrund, Änderungsantrag) zu einem Entry
+export async function addEntryMessage(entryId, message, type="info") {
+  const { error } = await supabase.from("entry_messages").insert({
+    entry_id: entryId,
+    message,
+    type, // 'rejection', 'change_request', 'admin_suggestion', 'info'
+    created_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function getEntryMessages(entryId) {
+  const { data, error } = await supabase
+    .from("entry_messages")
+    .select("*")
+    .eq("entry_id", entryId)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return data;
+}
+
+// ─── Mitarbeiter-Benachrichtigungen ───────────────────────────────────────────
+export async function createNotification(userId, message, type="info", entryId=null) {
+  const { error } = await supabase.from("notifications").insert({
+    user_id: userId,
+    message,
+    type,
+    entry_id: entryId,
+    read: false,
+    created_at: new Date().toISOString(),
+  });
+  if (error) console.warn("Notification error:", error.message);
+}
+
+export async function getMyNotifications(userId) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("read", false)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return data;
+}
+
+export async function markNotificationRead(id) {
+  await supabase.from("notifications").update({ read: true }).eq("id", id);
 }

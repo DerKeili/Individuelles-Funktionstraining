@@ -6,6 +6,7 @@ import {
   createEntry, updateEntry, setEntryStatus, deleteEntry, checkConflicts,
   adminResetPassword, requestPasswordReset,
   getPasswordResetRequests, dismissResetRequest,
+  createNotification, getMyNotifications, markNotificationRead,
 } from "./supabase.js";
 
 // ─── Feiertagsdaten 2025–2027 (alle 16 Bundesländer) ─────────────────────────
@@ -75,8 +76,9 @@ export default function App(){
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
   const [tooltip,setTooltip]=useState(null);
-  const [profileDirty,setProfileDirty]=useState(false); // hat Profil ungespeicherte Änderungen?
-  const [pendingView,setPendingView]=useState(null);    // wohin wechseln nach Bestätigung?
+  const [profileDirty,setProfileDirty]=useState(false);
+  const [pendingView,setPendingView]=useState(null);
+  const [myNotifications,setMyNotifications]=useState([]);
   const [printMode,setPrintMode]=useState(null);
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
@@ -130,6 +132,9 @@ export default function App(){
       setProfile(prof);
       setProfiles(profs);
       await loadEntries(prof.role==="admin",userId);
+      // Eigene Benachrichtigungen laden
+      const notifs=await getMyNotifications(userId);
+      setMyNotifications(notifs);
     }catch(e){
       // JWT-Zeitfehler: Token neu holen und nochmal versuchen
       if(e.message?.includes("JWT")||e.message?.includes("future")||e.message?.includes("expired")){
@@ -179,6 +184,9 @@ export default function App(){
               if(newE.status==="rejected")notify("❌ Dein Urlaubsantrag wurde abgelehnt.","warn");
             }
           });
+          // Eigene Notifications neu laden
+          const notifs=await getMyNotifications(session.user.id);
+          setMyNotifications(notifs);
           const myIds=new Set(mine.map(e=>e.id));
           const others=confirmed.filter(e=>e.user_id!==session.user.id&&!myIds.has(e.id));
           const myProf=profiles.find(p=>p.id===session.user.id)||profile;
@@ -263,7 +271,6 @@ export default function App(){
     notify("Eintrag aktualisiert.");
   }
   async function handleSetStatus(id,status){
-    // Konflikt-Info holen vor Bestätigung
     if(status==="confirmed"){
       const entry=entries.find(e=>e.id===id);
       if(entry){
@@ -273,13 +280,38 @@ export default function App(){
           if(!window.confirm(`Überschneidung mit ${names}. Trotzdem bestätigen?`))return;
         }
       }
+      await setEntryStatus(id,status);
+      // Mitarbeiter benachrichtigen
+      const e=entries.find(x=>x.id===id);
+      if(e)await createNotification(e.user_id,`Dein Urlaubsantrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde bestätigt. ✅`,"confirmed",id);
+    } else if(status==="rejected"){
+      // Ablehnungsgrund abfragen
+      const grund=window.prompt("Optional: Begründung für die Ablehnung (wird dem Mitarbeiter mitgeteilt):");
+      if(grund===null)return; // Abbrechen
+      await setEntryStatus(id,status);
+      const e=entries.find(x=>x.id===id);
+      if(e){
+        const msg=grund?.trim()
+          ?`Dein Urlaubsantrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde abgelehnt. Begründung: ${grund}`
+          :`Dein Urlaubsantrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde leider abgelehnt.`;
+        await createNotification(e.user_id,msg,"rejected",id);
+      }
+    } else {
+      await setEntryStatus(id,status);
     }
-    await setEntryStatus(id,status);
     await loadEntries(isAdmin,session.user.id);
-    notify(status==="confirmed"?"Eintrag bestätigt!":"Eintrag abgelehnt.","success");
+    notify(status==="confirmed"?"✅ Eintrag bestätigt!":"❌ Eintrag abgelehnt.","success");
   }
-  async function handleDeleteEntry(id){
+  async function handleDeleteEntry(id, adminNote=""){
+    const e=entries.find(x=>x.id===id);
     await deleteEntry(id);
+    // Mitarbeiter benachrichtigen wenn Admin einen fremden Eintrag löscht
+    if(e&&isAdmin&&e.user_id!==session.user.id){
+      const msg=adminNote?.trim()
+        ?`Dein Urlaubseintrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde vom Admin gelöscht. Hinweis: ${adminNote}`
+        :`Dein Urlaubseintrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde vom Admin gelöscht.`;
+      await createNotification(e.user_id,msg,"rejected");
+    }
     await loadEntries(isAdmin,session.user.id);
     notify("Eintrag gelöscht.");
   }
@@ -399,6 +431,23 @@ export default function App(){
         </div>
       </nav>
 
+      {/* Mitarbeiter-Benachrichtigungen (persistent) */}
+      {myNotifications.length>0&&(
+        <div style={{background:"#f0fdf4",borderLeft:"4px solid #22c55e",padding:"10px 16px",display:"flex",flexDirection:"column",gap:6}}>
+          {myNotifications.map(n=>(
+            <div key={n.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+              <div>
+                <span style={{fontSize:13,color:"#15803d",fontWeight:600}}>{n.type==="confirmed"?"✅":n.type==="rejected"?"❌":n.type==="change_request"?"🔄":"ℹ️"} {n.message}</span>
+                <span style={{fontSize:11,color:"#86efac",marginLeft:8}}>{new Date(n.created_at).toLocaleDateString("de-DE")}</span>
+              </div>
+              <button onClick={async()=>{await markNotificationRead(n.id);setMyNotifications(p=>p.filter(x=>x.id!==n.id));}} style={{background:"none",border:"1px solid #86efac",color:"#15803d",borderRadius:6,padding:"2px 8px",fontSize:11,cursor:"pointer",flexShrink:0}}>
+                ✓ Gelesen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* NOTIFICATION — JWT-Fehler werden unterdrückt */}
       {notif&&!notif.msg?.includes("JWT")&&!notif.msg?.includes("future")&&(
         <div style={{...S.notif,background:notif.type==="warn"?"#fff7ed":"#f7fce8",borderColor:notif.type==="warn"?"#f0932b":"#7ab529",color:notif.type==="warn"?"#9a3412":"#4a6b0f"}}>
@@ -411,8 +460,8 @@ export default function App(){
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isAdmin?pwu:pwu.filter(u=>u.id===session.user.id)} isAdmin={isAdmin} year={year} onEdit={u=>setModal({type:"editUser",data:u})}/>}
         {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{if(window.confirm("Mitarbeiter wirklich löschen?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={year} onStatus={handleSetStatus} onDelete={async id=>{if(window.confirm("Löschen?"))await handleDeleteEntry(id);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
-        {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async id=>{if(window.confirm("Löschen?"))await handleDeleteEntry(id);}}/>}
+        {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
       </main>
@@ -453,6 +502,37 @@ export default function App(){
       {/* MODALS */}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)} onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);notify("Gespeichert.");}} onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
+      {/* Änderungsantrag für bestätigte Einträge */}
+      {modal?.type==="changeRequest"&&(
+        <ChangeRequestModal
+          entry={modal.data.entry}
+          year={year}
+          onSave={async(newVon,newBis,grund)=>{
+            // Bestehenden Eintrag auf "pending" zurücksetzen mit neuem Zeitraum
+            await updateEntry(modal.data.entry.id,{von:newVon,bis:newBis,status:"pending",note:`Änderungsantrag: ${grund||"Neuer Zeitraum gewünscht"}`});
+            // Admin benachrichtigen (via pending-count)
+            await loadEntries(false,session.user.id);
+            setModal(null);
+            notify("Änderungsantrag gestellt — wartet auf Genehmigung.");
+          }}
+          onClose={()=>setModal(null)}
+        />
+      )}
+      {/* Stornierungsantrag */}
+      {modal?.type==="deleteRequest"&&(
+        <DeleteRequestModal
+          entry={modal.data.entry}
+          onSave={async(grund)=>{
+            // Status auf "pending" + Notiz für Stornierung
+            await updateEntry(modal.data.entry.id,{status:"pending",note:`Stornierungsantrag: ${grund||"Stornierung gewünscht"}`});
+            await loadEntries(false,session.user.id);
+            setModal(null);
+            notify("Stornierungsantrag gestellt — wartet auf Genehmigung.");
+          }}
+          onClose={()=>setModal(null)}
+        />
+      )}
+
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id} onSave={async d=>{await handleCreateEntry({...d,user_id:modal.data.userId});setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
@@ -629,10 +709,20 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
                   <div style={{fontSize:11,color:"#b45309"}}>{new Date(r.requested_at).toLocaleString("de-DE")}</div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>{
+                  <button onClick={async()=>{
                     const user=users.find(u=>u.email===r.email);
-                    if(user)onResetPwForUser(user);
-                    handleDismiss(r.id);
+                    if(!user){alert("Mitarbeiter nicht gefunden.");return;}
+                    const newPw=generatePassword();
+                    try{
+                      await adminResetPassword(user.id,newPw);
+                      // Text in Zwischenablage
+                      const text=`Hallo ${user.vorname},\n\ndein Passwort für den TZ Westlausitz Urlaubsplaner wurde zurückgesetzt:\n\n🌐 https://derkeili.github.io/Individuelles-Funktionstraining/\n📧 E-Mail: ${user.email}\n🔑 Neues Passwort: ${newPw}\n\nBitte ändere dein Passwort nach dem Login unter „Profil".\n\nViele Grüße\nThomas Keilig`;
+                      try{await navigator.clipboard.writeText(text);}catch(e){
+                        const el=document.createElement("textarea");el.value=text;document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);
+                      }
+                      await handleDismiss(r.id);
+                      notify(`✅ Passwort für ${user.vorname} zurückgesetzt! Text kopiert → jetzt einfügen & senden.`);
+                    }catch(e){notify("Fehler: "+e.message,"warn");}
                   }} style={{background:"#f0932b",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                     🔑 Passwort zurücksetzen
                   </button>
@@ -803,7 +893,10 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
                       <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14}} onClick={()=>onStatus(e.id,"rejected")} title="Ablehnen">✗</button>
                     </>}
                     <button style={S.icnBtn} onClick={()=>onEdit(e.user_id,e)}>✏️</button>
-                    <button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(e.id)}>🗑</button>
+                    <button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>{
+                      const note=window.prompt("Möchtest du dem Mitarbeiter eine Nachricht hinterlassen? (optional)");
+                      if(note!==null)onDelete(e.id,note);
+                    }}>🗑</button>
                   </div>
                 </td>
               </tr>
@@ -829,7 +922,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
 }
 
 // ─── Mein Urlaub ─────────────────────────────────────────────────────────────
-function MeinUrlaub({user,year,onAdd,onEdit,onDelete}){
+function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDelete}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
   const allEntries=user?.entries||[];
@@ -982,7 +1075,26 @@ tr:nth-child(even) td{background:#f9fdf5;}
                       })()}
                     </div>
                   </td>
-                <td style={S.td}>{e.status!=="confirmed"&&<div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(e)}>✏️</button><button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(e.id)}>🗑</button></div>}</td>
+                <td style={S.td}>
+                  {e.status!=="confirmed"?(
+                    <div style={{display:"flex",gap:6}}>
+                      <button style={S.icnBtn} onClick={()=>onEdit(e)} title="Bearbeiten">✏️</button>
+                      <button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>{if(window.confirm("Antrag löschen?"))onDelete(e.id);}} title="Löschen">🗑</button>
+                    </div>
+                  ):(
+                    // Bestätigt: Änderungsantrag oder Stornierung beantragen
+                    new Date(e.von)>new Date()?(
+                      <div style={{display:"flex",gap:6}}>
+                        <button style={{...S.icnBtn,background:"#fff7ed",color:"#92400e",border:"1px solid #f0932b",fontSize:11}} onClick={()=>onRequestChange(e)} title="Änderung beantragen">
+                          🔄 Änderung
+                        </button>
+                        <button style={{...S.icnBtn,background:"#fff1f2",color:"#be123c",border:"1px solid #fca5a5",fontSize:11}} onClick={()=>onRequestDelete(e)} title="Stornierung beantragen">
+                          ✕ Storno
+                        </button>
+                      </div>
+                    ):<span style={{fontSize:10,color:"#8aaa5f"}}>Vergangen</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1673,6 +1785,85 @@ function PrintList({year,users,stateName,onClose}){
           </table>
         </div>
       );})}
+    </div>
+  );
+}
+
+
+// ─── Änderungsantrag Modal ────────────────────────────────────────────────────
+function ChangeRequestModal({entry,year,onSave,onClose}){
+  const[von,setVon]=useState(entry?.von||"");
+  const[bis,setBis]=useState(entry?.bis||"");
+  const[grund,setGrund]=useState("");
+  const[busy,setBusy]=useState(false);
+  const wd=countWD(von,bis);
+  return(
+    <div style={S.overlay}>
+      <div style={S.modal}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>🔄 Änderungsantrag</span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          <div style={{fontSize:13,color:"#5a6b4a",marginBottom:14,background:"#fff7ed",padding:"8px 12px",borderRadius:8,border:"1px solid #f0932b"}}>
+            Aktuell bestätigt: <strong>{fmtDE(entry?.von)} – {fmtDE(entry?.bis)}</strong><br/>
+            Bitte gib den gewünschten neuen Zeitraum an.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+            <div><label style={S.lbl}>Neues Von-Datum</label>
+              <input style={S.inp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/>
+            </div>
+            <div><label style={S.lbl}>Neues Bis-Datum</label>
+              <input style={S.inp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/>
+            </div>
+          </div>
+          <div style={{marginBottom:12}}><label style={S.lbl}>Begründung (optional)</label>
+            <input style={S.inp} value={grund} onChange={e=>setGrund(e.target.value)} placeholder="z.B. Familienurlaub verschoben"/>
+          </div>
+          <div style={{fontSize:13,color:"#5a6b4a",borderTop:"1px solid #edf5d8",paddingTop:8}}>
+            Neuer Zeitraum: <strong style={{color:"#2d3a2e"}}>{wd} Arbeitstage</strong>
+          </div>
+          <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Der Änderungsantrag wird dem Administrator zur Genehmigung vorgelegt.</div>
+        </div>
+        <div style={S.mFt}>
+          <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy} onClick={async()=>{
+            if(!von||!bis||bis<von){alert("Bitte gültige Daten.");return;}
+            setBusy(true);try{await onSave(von,bis,grund);}finally{setBusy(false);}
+          }}>Änderung beantragen</button>
+          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stornierungsantrag Modal ─────────────────────────────────────────────────
+function DeleteRequestModal({entry,onSave,onClose}){
+  const[grund,setGrund]=useState("");
+  const[busy,setBusy]=useState(false);
+  return(
+    <div style={S.overlay}>
+      <div style={S.modal}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>✕ Stornierungsantrag</span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          <div style={{fontSize:13,color:"#92400e",marginBottom:14,background:"#fff1f2",padding:"8px 12px",borderRadius:8,border:"1px solid #fca5a5"}}>
+            Zeitraum: <strong>{fmtDE(entry?.von)} – {fmtDE(entry?.bis)}</strong>
+          </div>
+          <div style={{marginBottom:12}}><label style={S.lbl}>Begründung</label>
+            <input style={S.inp} value={grund} onChange={e=>setGrund(e.target.value)} placeholder="Bitte begründe deinen Stornierungsantrag"/>
+          </div>
+          <div style={{fontSize:11,color:"#8aaa5f"}}>Der Antrag wird dem Administrator zur Genehmigung vorgelegt.</div>
+        </div>
+        <div style={S.mFt}>
+          <button style={{...S.savBtn,background:"#dc2626",opacity:busy?0.6:1}} disabled={busy} onClick={async()=>{
+            setBusy(true);try{await onSave(grund);}finally{setBusy(false);}
+          }}>Stornierung beantragen</button>
+          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
     </div>
   );
 }
