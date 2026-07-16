@@ -962,8 +962,7 @@ function MitView({users,onAdd,onEdit,onDelete}){
           <thead><tr style={{background:"#f8faf0"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
-              const yearStr=String(year);
-              const entries=(u.entries||[]).filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
+              const entries=u.entries||[];
               const urlT=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueT=eDays(entries,"ueberstunden"),pend=entries.filter(e=>e.status==="pending").length;
               return(
                 <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
