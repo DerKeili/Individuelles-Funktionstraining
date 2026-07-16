@@ -757,7 +757,7 @@ function printUserPDF(u, year) {
     +"<div class='sigl'>Unterschrift Praxisleitung</div>"
     +"<div class='sign'>Genehmigt durch die Praxisleitung.</div></div></div>"
     +"<div class='foot'>Therapie- & Pflegezentrum Westlausitz · "+new Date().toLocaleDateString("de-DE")+"</div>"
-    +"<scr"+"ipt>window.onload=function(){window.print();}</scr"+"ipt></body></html>";
+    +"<style>.np{position:fixed;top:10px;right:14px;background:#dc2626;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);}@media print{.np{display:none!important;}}</style><button class=np onclick=window.close()>Schliessen</button>"+"<scr"+"ipt>window.onload=function(){window.print();}</scr"+"ipt></body></html>";
   w.document.write(html);
   w.document.close();
 }
@@ -1102,7 +1102,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
     <div class="sig-note">Genehmigt durch die Praxisleitung.</div>
   </div>
 </div>
-<div class="foot">Therapie- & Pflegezentrum Westlausitz · Urlaubsplaner · Erstellt am ${new Date().toLocaleDateString("de-DE")}</div>
+<div class="foot">Therapie- & Pflegezentrum Westlausitz · Urlaubsplaner · Erstellt am ${new Date().toLocaleDateString("de-DE")}</div><style>.np{position:fixed;top:10px;right:14px;background:#dc2626;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);}@media print{.np{display:none!important;}}</style><button class=np onclick=window.close()>Schliessen</button>
 <script>window.onload=()=>window.print();</script>
 </body></html>`);
             w.document.close();
@@ -1830,6 +1830,7 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
       +'<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#fce7f3;border:1px solid #f9a8d4"></div><span>Schulferien</span></div>'
       +'<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#d4b896;border:1px solid #c9a07a"></div><span>Feiertage</span></div>'
       +'</div>'
+      +'<style>.np{position:fixed;top:10px;right:14px;background:#dc2626;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);}@media print{.np{display:none!important;}}</style><button class=np onclick=window.close()>Schliessen</button>'
       +'<script>window.onload=function(){window.print();}<'+'/script>'
       +'</body></html>';
 
