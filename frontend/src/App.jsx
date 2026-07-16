@@ -368,6 +368,20 @@ export default function App(){
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
 
+  // Einmalpasswort: Mitarbeiter muss neues Passwort setzen
+  if(profile?.must_change_password){
+    return <ForceChangePassword user={profile} onDone={async(newPw)=>{
+      try{
+        // Neues Passwort setzen via Supabase Auth
+        const{error}=await supabase.auth.updateUser({password:newPw});
+        if(error)throw new Error(error.message);
+        await clearMustChangePassword(profile.id);
+        setProfile(p=>({...p,must_change_password:false}));
+        notify("✅ Passwort erfolgreich geändert!");
+      }catch(e){throw e;}
+    }}/>;
+  }
+
   // Navigation mit Ungespeichert-Prüfung
   function handleNavClick(id){
     if(view==="profil"&&profileDirty&&id!=="profil"){
@@ -490,7 +504,7 @@ export default function App(){
       {/* MAIN */}
       <main style={S.main} onClick={()=>setTooltip(null)}>
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
-        {view==="dashboard"&&<DashView users={isAdmin?pwu:pwu.filter(u=>u.id===session.user.id)} isAdmin={isAdmin} year={year} onEdit={u=>setModal({type:"editUser",data:u})}/>}
+        {view==="dashboard"&&<DashView users={isAdmin?pwu:pwu.filter(u=>u.id===session.user.id)} isAdmin={isAdmin} year={year} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{if(window.confirm("Mitarbeiter wirklich löschen?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
@@ -577,6 +591,51 @@ export default function App(){
       {/* PRINT */}
       {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={entries.filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
       {printMode==="liste"&&<PrintList year={year} users={pwu} stateName={stateName} onClose={()=>setPrintMode(null)}/>}
+    </div>
+  );
+}
+
+
+// ─── Erzwungener Passwort-Wechsel (Einmalpasswort) ───────────────────────────
+function ForceChangePassword({user,onDone}){
+  const[pw,setPw]=useState("");
+  const[pw2,setPw2]=useState("");
+  const[err,setErr]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[showPw,setShowPw]=useState(false);
+
+  async function submit(){
+    if(pw.length<6){setErr("Das Passwort muss mindestens 6 Zeichen haben.");return;}
+    if(pw!==pw2){setErr("Die Passwörter stimmen nicht überein.");return;}
+    setBusy(true);setErr("");
+    try{await onDone(pw);}
+    catch(e){setErr(e.message);setBusy(false);}
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#e8f5eb 0%,#f0f4f0 50%,#e0efe3 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:16,padding:40,width:440,maxWidth:"90vw",border:"1px solid #d4e6d8",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{fontSize:44,marginBottom:8}}>🔐</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>Neues Passwort festlegen</div>
+          <div style={{fontSize:13,color:"#6b8f74",marginTop:8,lineHeight:1.5}}>
+            Hallo {user?.vorname}, dein Passwort wurde zurückgesetzt. Bitte lege jetzt dein persönliches Passwort fest.
+          </div>
+        </div>
+        <div style={{marginBottom:14,position:"relative"}}>
+          <label style={S.lbl}>Neues Passwort</label>
+          <input style={S.inp} type={showPw?"text":"password"} value={pw} onChange={e=>setPw(e.target.value)} placeholder="Mindestens 6 Zeichen" autoFocus/>
+          <button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#8aaa5f",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={S.lbl}>Passwort bestätigen</label>
+          <input style={S.inp} type={showPw?"text":"password"} value={pw2} onChange={e=>setPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+        </div>
+        {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6}}>{err}</div>}
+        <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1}} onClick={submit} disabled={busy}>
+          {busy?"Wird gespeichert…":"Passwort festlegen & fortfahren"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -717,8 +776,9 @@ function MonthCard({year,month,entries,profiles,bl,showFerien=true,showFeiertage
 function printUserPDF(u, year) {
   const w = window.open("about:blank","_pdf_"+Date.now(),"width=900,height=700");
   if(!w) return;
-  const uEntries = [...(u.entries||[])].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
-  const urlT = eDays(u.entries,"urlaub"), rstT = eDays(u.entries,"resturlaub");
+  const yStr=String(year);const uEntries = [...(u.entries||[])].filter(e=>e.type!=="ueberstunden"&&(e.von?.startsWith(yStr)||e.bis?.startsWith(yStr))).sort((a,b)=>a.von.localeCompare(b.von));
+  const yEntries=(u.entries||[]).filter(e=>e.von?.startsWith(String(year))||e.bis?.startsWith(String(year)));
+  const urlT = eDays(yEntries,"urlaub"), rstT = eDays(yEntries,"resturlaub");
   const rem = (u.urlaubstage||30) - (urlT+rstT);
   const TL = {urlaub:"Urlaub",resturlaub:"Resturlaub"};
   const fde = s => s ? new Date(s).toLocaleDateString("de-DE") : "";
@@ -815,8 +875,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>{
                     const user=users.find(u=>u.email===r.email);
-                    if(user)setModal({type:"resetPw",data:{user,requestId:r.id}});
-                    else notify("Mitarbeiter nicht gefunden.","warn");
+                    if(user)onResetPwForUser({user,requestId:r.id});
                   }} style={{background:"#f0932b",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                     🔑 Passwort zurücksetzen
                   </button>
@@ -836,7 +895,8 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16}}>
         {users.map(u=>{
-          const entries=u.entries||[];
+          const yearStr=String(year);
+          const entries=(u.entries||[]).filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
           const urlU=eDays(entries,"urlaub"),rstU=eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");
           const total=urlU+rstU,rem=(u.urlaubstage||30)-total,ueRem=(u.ueberstunden||0)-ueU;
           const pend=entries.filter(e=>e.status==="pending").length;
@@ -902,7 +962,8 @@ function MitView({users,onAdd,onEdit,onDelete}){
           <thead><tr style={{background:"#f8faf0"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
-              const entries=u.entries||[];
+              const yearStr=String(year);
+              const entries=(u.entries||[]).filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
               const urlT=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueT=eDays(entries,"ueberstunden"),pend=entries.filter(e=>e.status==="pending").length;
               return(
                 <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
