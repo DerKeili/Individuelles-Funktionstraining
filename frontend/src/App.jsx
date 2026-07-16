@@ -1677,51 +1677,78 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
     dot:{width:7,height:7,borderRadius:"50%"},
   };
 
-  // Neue-Fenster-Modus: HTML generieren und im neuen Fenster drucken
+  // Neue-Fenster-Modus: HTML in neuem Fenster öffnen und drucken
   useEffect(()=>{
     if(!useNewWindow)return;
     const w=window.open("","_blank","width=1200,height=800");
-    // Kalender-HTML generieren
+    if(!w)return;
+
+    // Farbe zu rgba konvertieren (ohne nested template literals)
+    function hexToRgba(hex,alpha){
+      const r=parseInt(hex.slice(1,3),16);
+      const g=parseInt(hex.slice(3,5),16);
+      const b=parseInt(hex.slice(5,7),16);
+      return "rgba("+r+","+g+","+b+","+alpha+")";
+    }
+
+    // Monate als HTML generieren
     const monthsHTML=MONTHS.map((mn,m)=>{
       const d=dimM(year,m),f=fwdM(year,m);
-      const cells=[];for(let i=0;i<f;i++)cells.push(null);for(let x=1;x<=d;x++)cells.push(x);while(cells.length%7!==0)cells.push(null);
-      const daysHTML=DAYS_SHORT.map(x=>`<div style="text-align:center;font-size:6px;font-weight:700;color:#888">${x}</div>`).join("");
+      const cells=[];
+      for(let i=0;i<f;i++)cells.push(null);
+      for(let x=1;x<=d;x++)cells.push(x);
+      while(cells.length%7!==0)cells.push(null);
+
+      const daysHTML=DAYS_SHORT.map(x=>'<div style="text-align:center;font-size:6px;font-weight:700;color:#888">'+x+'</div>').join("");
+
       const cellsHTML=cells.map(day=>{
         if(!day)return"<div></div>";
         const iso=toISO(year,m,day),wk=isWE(year,m,day);
         const fei=isFT(iso,state,year),fer=isFer(iso,state,year);
-        const mk=entries.filter(e=>iso>=e.von&&iso<=e.bis).map(e=>{const p=profiles.find(x=>x.id===e.user_id)||e.profiles||{};return{color:p.color||"#5a8a1f"};});
+        const mk=entries.filter(e=>iso>=e.von&&iso<=e.bis).map(e=>{
+          const p=profiles.find(x=>x.id===e.user_id)||e.profiles||{};
+          return{color:p.color||"#5a8a1f"};
+        });
         let bg="transparent",tc=wk?"#bbb":"#333";
-        if(mk.length===1){bg=\`rgba(\${parseInt(mk[0].color.slice(1,3),16)},\${parseInt(mk[0].color.slice(3,5),16)},\${parseInt(mk[0].color.slice(5,7),16)},0.65)\`;tc="#fff";}
-        else if(mk.length>1){bg=\`rgba(\${parseInt(mk[0].color.slice(1,3),16)},\${parseInt(mk[0].color.slice(3,5),16)},\${parseInt(mk[0].color.slice(5,7),16)},0.5)\`;tc="#fff";}
+        if(mk.length===1){bg=hexToRgba(mk[0].color,0.65);tc="#fff";}
+        else if(mk.length>1){bg=hexToRgba(mk[0].color,0.5);tc="#fff";}
         else if(fei&&!fer){bg="#d4b896";tc="#5c3d1a";}
         else if(fer&&!fei){bg="#fce7f3";tc="#9d174d";}
         else if(fei&&fer){bg="linear-gradient(135deg,#fce7f3 50%,#d4b896 50%)";}
-        return\`<div style="text-align:center;font-size:6px;min-height:11px;display:flex;align-items:center;justify-content:center;border-radius:1px;background:\${bg};color:\${tc};font-weight:\${mk.length?700:400}">\${day}</div>\`;
+        return '<div style="text-align:center;font-size:6px;min-height:11px;display:flex;align-items:center;justify-content:center;border-radius:1px;background:'+bg+';color:'+tc+';font-weight:'+(mk.length?700:400)+'">'+day+'</div>';
       }).join("");
-      return\`<div style="border:1px solid #ccc;padding:3px;display:flex;flex-direction:column;">
-        <div style="font-size:8px;font-weight:700;text-align:center;margin-bottom:2px;border-bottom:1px solid #eee;padding-bottom:2px;color:#5a8a1f">\${mn}</div>
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;flex:1">\${daysHTML}\${cellsHTML}</div>
-      </div>\`;
+
+      return '<div style="border:1px solid #ccc;padding:3px;display:flex;flex-direction:column;">'
+        +'<div style="font-size:8px;font-weight:700;text-align:center;margin-bottom:2px;border-bottom:1px solid #eee;padding-bottom:2px;color:#5a8a1f">'+mn+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;flex:1">'+daysHTML+cellsHTML+'</div>'
+        +'</div>';
     }).join("");
-    const usersLeg=profiles.filter(p=>entries.some(e=>e.user_id===p.id)).map(p=>\`<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:\${p.color||"#5a8a1f"}"></div><span>\${p.vorname} \${p.nachname}</span></div>\`).join("");
-    w.document.write(\`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Urlaubsplan \${year}</title>
-    <style>@page{size:A4 landscape;margin:6mm;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;}</style>
-    </head><body>
-    <div style="font-size:12px;font-weight:700;text-align:center;margin-bottom:4px">Urlaubsplan \${year} · \${stateName}</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;height:calc(100vh - 40px)">\${monthsHTML}</div>
-    <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
-      \${usersLeg}
-      <div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#fce7f3;border:1px solid #f9a8d4"></div><span>Schulferien</span></div>
-      <div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#d4b896;border:1px solid #c9a07a"></div><span>Feiertage</span></div>
-    </div>
-    <script>window.onload=()=>window.print();</script>
-    </body></html>\`);
+
+    const usersLeg=profiles
+      .filter(p=>entries.some(e=>e.user_id===p.id))
+      .map(p=>'<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:'+p.color+'"></div><span>'+p.vorname+' '+p.nachname+'</span></div>')
+      .join("");
+
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Urlaubsplan '+year+'</title>'
+      +'<style>@page{size:A4 landscape;margin:6mm;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;}</style>'
+      +'</head><body>'
+      +'<div style="font-size:12px;font-weight:700;text-align:center;margin-bottom:4px">Urlaubsplan '+year+' · '+stateName+'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;height:calc(100vh - 40px)">'+monthsHTML+'</div>'
+      +'<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center">'
+      +usersLeg
+      +'<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#fce7f3;border:1px solid #f9a8d4"></div><span>Schulferien</span></div>'
+      +'<div style="display:flex;align-items:center;gap:3px;font-size:7px"><div style="width:7px;height:7px;border-radius:50%;background:#d4b896;border:1px solid #c9a07a"></div><span>Feiertage</span></div>'
+      +'</div>'
+      +'<script>window.onload=function(){window.print();}<'+'/script>'
+      +'</body></html>';
+
+    w.document.write(html);
     w.document.close();
     onClose?.();
   },[useNewWindow]);
 
   if(useNewWindow)return null;
+
 
 
   // Escape-Taste schließt Druckansicht
