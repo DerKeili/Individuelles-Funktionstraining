@@ -426,8 +426,30 @@ export default function App(){
           {pwu.filter(u=>u.entries.some(e=>e.status==="confirmed")).map(u=>(
             <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
           ))}
-          <div style={S.legItem}><div style={{...S.legDot,background:"#fce7f3",border:"1px solid #f9a8d4"}}/><span>Ferien</span></div>
-          <div style={S.legItem}><div style={{...S.legDot,background:"#d4b896",border:"1px solid #c9a07a"}}/><span>Feiertag</span></div>
+          {/* Ferien Toggle — klickbar */}
+          <button onClick={()=>setShowFerien(v=>!v)} style={{
+            display:"flex",alignItems:"center",gap:5,background:"none",cursor:"pointer",
+            border:"1px solid "+(showFerien?"#f9a8d4":"#cbd5e1"),
+            borderRadius:14,padding:"3px 9px",transition:"all .15s",
+            opacity:showFerien?1:0.45,
+          }} title={showFerien?"Ferien ausblenden":"Ferien einblenden"}>
+            <div style={{...S.legDot,background:showFerien?"#fce7f3":"#e2e8f0",border:"1px solid "+(showFerien?"#f9a8d4":"#cbd5e1")}}/>
+            <span style={{fontSize:11,color:showFerien?"#9d174d":"#94a3b8",fontWeight:600}}>
+              {showFerien?"🌸 Ferien":"— Ferien"}
+            </span>
+          </button>
+          {/* Feiertage Toggle — klickbar */}
+          <button onClick={()=>setShowFeiertage(v=>!v)} style={{
+            display:"flex",alignItems:"center",gap:5,background:"none",cursor:"pointer",
+            border:"1px solid "+(showFeiertage?"#c9a07a":"#cbd5e1"),
+            borderRadius:14,padding:"3px 9px",transition:"all .15s",
+            opacity:showFeiertage?1:0.45,
+          }} title={showFeiertage?"Feiertage ausblenden":"Feiertage einblenden"}>
+            <div style={{...S.legDot,background:showFeiertage?"#d4b896":"#e2e8f0",border:"1px solid "+(showFeiertage?"#c9a07a":"#cbd5e1")}}/>
+            <span style={{fontSize:11,color:showFeiertage?"#5c3d1a":"#94a3b8",fontWeight:600}}>
+              {showFeiertage?"🎉 Feiertag":"— Feiertag"}
+            </span>
+          </button>
         </div>
       </nav>
 
