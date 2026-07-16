@@ -532,6 +532,12 @@ export default function App(){
       )}
 
       {/* MODALS */}
+      {modal?.type==="resetPw"&&<ResetPwModal
+        user={modal.data.user}
+        requestId={modal.data.requestId}
+        onDone={async(reqId)=>{if(reqId)await handleDismiss(reqId);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
+        onClose={()=>setModal(null)}
+      />}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)} onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);notify("Gespeichert.");}} onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
       {/* Änderungsantrag für bestätigte Einträge */}
@@ -807,20 +813,10 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
                   <div style={{fontSize:11,color:"#b45309"}}>{new Date(r.requested_at).toLocaleString("de-DE")}</div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={async()=>{
+                  <button onClick={()=>{
                     const user=users.find(u=>u.email===r.email);
-                    if(!user){alert("Mitarbeiter nicht gefunden.");return;}
-                    const newPw=generatePassword();
-                    try{
-                      await adminResetPassword(user.id,newPw);
-                      // Text in Zwischenablage
-                      const text=`Hallo ${user.vorname},\n\ndein Passwort für den TZ Westlausitz Urlaubsplaner wurde zurückgesetzt:\n\n🌐 https://derkeili.github.io/Individuelles-Funktionstraining/\n📧 E-Mail: ${user.email}\n🔑 Neues Passwort: ${newPw}\n\nBitte ändere dein Passwort nach dem Login unter „Profil".\n\nViele Grüße\nThomas Keilig`;
-                      try{await navigator.clipboard.writeText(text);}catch(e){
-                        const el=document.createElement("textarea");el.value=text;document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);
-                      }
-                      await handleDismiss(r.id);
-                      notify(`✅ Passwort für ${user.vorname} zurückgesetzt! Text kopiert → jetzt einfügen & senden.`);
-                    }catch(e){notify("Fehler: "+e.message,"warn");}
+                    if(user)setModal({type:"resetPw",data:{user,requestId:r.id}});
+                    else notify("Mitarbeiter nicht gefunden.","warn");
                   }} style={{background:"#f0932b",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                     🔑 Passwort zurücksetzen
                   </button>
@@ -1489,6 +1485,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   const[adminPw,setAdminPw]=useState("");
   const[adminPw2,setAdminPw2]=useState("");
   const[pwErr,setPwErr]=useState("");
+  const[resetSuccess,setResetSuccess]=useState(null);
   const[busy,setBusy]=useState(false);
 
   // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
@@ -1503,14 +1500,30 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   }
 
   async function saveAdminPwReset(){
-    if(adminPw.length<6){setPwErr("Mindestens 6 Zeichen.");return;}
-    if(adminPw!==adminPw2){setPwErr("Passwörter stimmen nicht überein.");return;}
+    const pw=adminPw||generatePassword();
+    if(pw.length<6){setPwErr("Mindestens 6 Zeichen.");return;}
     setBusy(true);
     try{
-      await onResetPw(initial.id,adminPw);
+      await onResetPw(initial.id,pw);
+      // Nachrichtentext erstellen und kopieren
+      const text=`Hallo ${initial?.vorname},
+
+dein Passwort für den TZ Westlausitz Urlaubsplaner wurde zurückgesetzt:
+
+🌐 https://derkeili.github.io/Individuelles-Funktionstraining/
+📧 E-Mail: ${initial?.email}
+🔑 Neues Passwort: ${pw}
+
+Bitte ändere dein Passwort nach dem ersten Login unter „Profil".
+
+Viele Grüße
+Thomas Keilig`;
+      try{await navigator.clipboard.writeText(text);}catch(e){
+        const el=document.createElement("textarea");el.value=text;document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);
+      }
       setShowPwReset(false);setAdminPw("");setAdminPw2("");setPwErr("");
-      alert("Passwort wurde zurückgesetzt.");
-    }catch(e){setPwErr(e.message);}
+      setResetSuccess({pw,email:initial?.email,vorname:initial?.vorname});
+    }catch(e){setPwErr("Fehler: "+e.message);}
     finally{setBusy(false);}
   }
 
@@ -1680,7 +1693,27 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
                       <input style={S.inp} type="password" value={adminPw2} onChange={e=>setAdminPw2(e.target.value)}/>
                     </div>
                     {pwErr&&<div style={{fontSize:12,color:"#f87171",background:"rgba(248,113,113,0.1)",padding:"6px 10px",borderRadius:6}}>{pwErr}</div>}
-                    <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveAdminPwReset} disabled={busy}>Passwort jetzt zurücksetzen</button>
+                    {/* Auto-Generieren Button */}
+                    <button onClick={()=>setAdminPw(generatePassword())}
+                      style={{width:"100%",padding:"9px",background:"#5a8a1f",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:6}}>
+                      🔑 Neues Passwort automatisch generieren
+                    </button>
+                    {adminPw&&(
+                      <div style={{background:"#f8faf0",border:"1.5px solid #5a8a1f",borderRadius:8,padding:"10px 14px",fontFamily:"monospace",fontSize:15,letterSpacing:"0.08em",color:"#2d3a2e",fontWeight:700,marginBottom:6}}>
+                        {adminPw}
+                      </div>
+                    )}
+                    <button style={{...S.savBtn,width:"100%",opacity:(busy||!adminPw)?0.6:1}} onClick={saveAdminPwReset} disabled={busy||!adminPw}>
+                      {busy?"Wird gesetzt…":"✓ Passwort setzen & Nachrichtentext kopieren 📋"}
+                    </button>
+                    {resetSuccess&&(
+                      <div style={{marginTop:10,background:"#f0fdf4",border:"1.5px solid #22c55e",borderRadius:8,padding:"12px 14px"}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"#15803d",marginBottom:6}}>✅ Passwort zurückgesetzt!</div>
+                        <div style={{fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>{resetSuccess.pw}</div>
+                        <CopyLoginButton email={resetSuccess.email} password={resetSuccess.pw} vorname={resetSuccess.vorname}/>
+                        <div style={{fontSize:11,color:"#5a6b4a",marginTop:6}}>Nachrichtentext wurde kopiert → einfügen & senden.</div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1991,6 +2024,99 @@ function DeleteRequestModal({entry,onSave,onClose}){
             setBusy(true);try{await onSave(grund);}finally{setBusy(false);}
           }}>Stornierung beantragen</button>
           <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Passwort-Reset Modal (für Dashboard-Anfragen) ───────────────────────────
+function ResetPwModal({user,requestId,onDone,onClose}){
+  const[pw,setPw]=useState(()=>generatePassword());
+  const[busy,setBusy]=useState(false);
+  const[done,setDone]=useState(false);
+  const[err,setErr]=useState("");
+
+  async function doReset(){
+    if(pw.length<6){setErr("Mindestens 6 Zeichen.");return;}
+    setBusy(true);setErr("");
+    try{
+      await adminResetPassword(user.id,pw);
+      const text=`Hallo ${user.vorname},
+
+dein Passwort für den TZ Westlausitz Urlaubsplaner wurde zurückgesetzt:
+
+🌐 https://derkeili.github.io/Individuelles-Funktionstraining/
+📧 E-Mail: ${user.email}
+🔑 Neues Passwort: ${pw}
+
+Bitte ändere dein Passwort nach dem ersten Login unter „Profil".
+
+Viele Grüße
+Thomas Keilig`;
+      try{await navigator.clipboard.writeText(text);}catch(e){
+        const el=document.createElement("textarea");el.value=text;document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);
+      }
+      setDone(true);
+      onDone(requestId);
+    }catch(e){setErr("Fehler: "+e.message);}
+    finally{setBusy(false);}
+  }
+
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,width:460}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>🔑 Passwort zurücksetzen</span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          {!done?(
+            <>
+              <div style={{background:"#fff7ed",border:"1px solid #f0932b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#92400e"}}>Anfrage von: {user.vorname} {user.nachname}</div>
+                <div style={{fontSize:12,color:"#b45309"}}>{user.email}</div>
+              </div>
+              <div style={{marginBottom:10}}>
+                <label style={S.lbl}>Neues Passwort</label>
+                <div style={{display:"flex",gap:8}}>
+                  <div style={{flex:1,background:"#f8faf0",border:"1.5px solid #5a8a1f",borderRadius:8,padding:"10px 14px",fontFamily:"monospace",fontSize:15,letterSpacing:"0.08em",color:"#2d3a2e",fontWeight:700}}>
+                    {pw}
+                  </div>
+                  <button onClick={()=>setPw(generatePassword())}
+                    style={{background:"#f8faf0",border:"1.5px solid #d5e8a0",borderRadius:8,padding:"10px 12px",cursor:"pointer",fontSize:18}} title="Neues generieren">
+                    🔄
+                  </button>
+                </div>
+              </div>
+              {err&&<div style={{fontSize:12,color:"#f87171",background:"rgba(248,113,113,0.1)",padding:"8px 12px",borderRadius:6,marginBottom:8}}>{err}</div>}
+              <div style={{fontSize:11,color:"#8aaa5f",marginBottom:12}}>
+                Das Passwort wird gesetzt und der Nachrichtentext automatisch in die Zwischenablage kopiert.
+              </div>
+            </>
+          ):(
+            <div style={{textAlign:"center",padding:"16px 0"}}>
+              <div style={{fontSize:36,marginBottom:10}}>✅</div>
+              <div style={{fontWeight:700,fontSize:15,color:"#2d3a2e",marginBottom:6}}>Passwort zurückgesetzt!</div>
+              <div style={{fontSize:13,color:"#5a6b4a",marginBottom:14}}>Nachrichtentext wurde kopiert — jetzt einfügen und an {user.vorname} senden.</div>
+              <div style={{background:"#f8faf0",border:"1px solid #d5e8a0",borderRadius:8,padding:"10px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#2d3a2e"}}>
+                {pw}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={S.mFt}>
+          {!done?(
+            <>
+              <button style={{...S.savBtn,opacity:busy?0.6:1,flex:1}} onClick={doReset} disabled={busy}>
+                {busy?"Wird gesetzt…":"Passwort setzen & Nachricht kopieren 📋"}
+              </button>
+              <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+            </>
+          ):(
+            <button style={{...S.savBtn,width:"100%"}} onClick={onClose}>Schließen</button>
+          )}
         </div>
       </div>
     </div>
