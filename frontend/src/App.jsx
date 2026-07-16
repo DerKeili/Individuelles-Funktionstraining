@@ -60,7 +60,7 @@ function countWD(von,bis){if(!von||!bis)return 0;const[y1,m1,d1]=von.split("-").
 function eDays(entries=[],type){return entries.filter(e=>e.type===type).reduce((s,e)=>s+countWD(e.von||e.von,e.bis||e.bis),0);}
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
 const lighten=(hex,f=0.4)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`#${Math.round(r+(255-r)*f).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*f).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*f).toString(16).padStart(2,"0")}`;};
-const PRINT_STYLE=`@media print{body *{visibility:hidden!important;}.pt,.pt *{visibility:visible!important;}.pt{position:fixed;left:0;top:0;width:100%;height:100%;background:#fff;z-index:9999;}@page{size:A4 landscape;margin:6mm;}}`;
+const PRINT_STYLE=`@media print{body *{visibility:hidden!important;}.pt,.pt *{visibility:visible!important;}.pt{position:fixed;left:0;top:0;width:100%;height:100%;background:#fff;z-index:9999;}@page{margin-top:6mm;margin-bottom:6mm;size:A4 landscape;margin:6mm;}}`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App(){
@@ -79,6 +79,7 @@ export default function App(){
   const [profileDirty,setProfileDirty]=useState(false);
   const [pendingView,setPendingView]=useState(null);
   const [myNotifications,setMyNotifications]=useState([]);
+  const [pendingJumpYear,setPendingJumpYear]=useState(null);
   const [printMode,setPrintMode]=useState(null);
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
@@ -421,7 +422,16 @@ export default function App(){
         {navItems.map(([id,lbl])=>(
           <button key={id} style={{...S.navBtn,...(view===id?S.navAct:{})}} onClick={()=>handleNavClick(id)}>{lbl}</button>
         ))}
-        {isAdmin&&pendingCount>0&&<button onClick={()=>setView("eintraege")} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
+        {isAdmin&&pendingCount>0&&<button onClick={()=>{
+          const firstPending=entries.filter(e=>e.status==="pending")
+            .sort((a,b)=>a.von.localeCompare(b.von))[0];
+          if(firstPending?.von){
+            const py=parseInt(firstPending.von.substring(0,4));
+            setYear(py);
+            setPendingJumpYear(py);
+          }
+          setView("eintraege");
+        }} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
         <div style={S.legend}>
           {pwu.filter(u=>u.entries.some(e=>e.status==="confirmed")).map(u=>(
             <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
@@ -482,7 +492,7 @@ export default function App(){
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isAdmin?pwu:pwu.filter(u=>u.id===session.user.id)} isAdmin={isAdmin} year={year} onEdit={u=>setModal({type:"editUser",data:u})}/>}
         {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{if(window.confirm("Mitarbeiter wirklich löschen?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
@@ -699,7 +709,7 @@ function MonthCard({year,month,entries,profiles,bl,showFerien=true,showFeiertage
 
 // ─── PDF-Druck für Urlaubsübersicht ──────────────────────────────────────────
 function printUserPDF(u, year) {
-  const w = window.open("","_blank","width=900,height=700");
+  const w = window.open("about:blank","_pdf_"+Date.now(),"width=900,height=700");
   if(!w) return;
   const uEntries = [...(u.entries||[])].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
   const urlT = eDays(u.entries,"urlaub"), rstT = eDays(u.entries,"resturlaub");
@@ -714,7 +724,7 @@ function printUserPDF(u, year) {
     +"<td>"+(e.created_at?new Date(e.created_at).toLocaleDateString("de-DE"):"")+"</td>"
     +"<td><span class='"+(e.status==="confirmed"?"ok":"pend")+"'>"+(e.status==="confirmed"?"Bestätigt":"Ausstehend")+"</span></td></tr>"
   ).join("");
-  const css = "@page{size:A4 portrait;margin:16mm 14mm;}"
+  const css = "@page{size:A4 portrait;margin:16mm 14mm;}@media print{a[href]:after{content:none!important;}}"
     +"*{box-sizing:border-box;margin:0;padding:0;}"
     +"body{font-family:Arial,sans-serif;font-size:11px;color:#222;}"
     +".hdr{display:flex;align-items:center;gap:16px;margin-bottom:14px;border-bottom:2px solid #5a8a1f;padding-bottom:10px;}"
@@ -1027,7 +1037,7 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDe
         <h2 style={S.pgT}>Mein Urlaub</h2>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>{
-            const w=window.open("","_blank","width=900,height=700");
+            const w=window.open("about:blank","_urlaubsdruck_"+Date.now(),"width=900,height=700");
             const sorted=[...allEntries].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
             const urlT=eDays(allEntries,"urlaub"),rstT=eDays(allEntries,"resturlaub");
             const rem=(user?.urlaubstage||30)-(urlT+rstT);
@@ -1038,7 +1048,7 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDe
 <meta charset="UTF-8"/>
 <title>Urlaubsübersicht ${user?.vorname} ${user?.nachname} ${pdfYear}</title>
 <style>
-@page{size:A4 portrait;margin:16mm 14mm;}
+@page{size:A4 portrait;margin:16mm 14mm;}@media print{a[href]:after{content:none!important;}}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:Arial,sans-serif;font-size:11px;color:#222;}
 .header{display:flex;align-items:center;gap:16px;margin-bottom:14px;border-bottom:2px solid #5a8a1f;padding-bottom:10px;}
@@ -1771,7 +1781,7 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
   // Neue-Fenster-Modus: HTML in neuem Fenster öffnen und drucken
   useEffect(()=>{
     if(!useNewWindow)return;
-    const w=window.open("","_blank","width=1200,height=800");
+    const w=window.open("about:blank","_kalender_"+Date.now(),"width=1200,height=800");
     if(!w)return;
 
     // Farbe zu rgba konvertieren (ohne nested template literals)
@@ -1821,7 +1831,7 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
       .join("");
 
     const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Urlaubsplan '+year+'</title>'
-      +'<style>@page{size:A4 landscape;margin:6mm;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;}</style>'
+      +'<style>@page{size:A4 landscape;margin:6mm;}@media print{a[href]:after{content:none!important;}}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;}</style>'
       +'</head><body>'
       +'<div style="font-size:12px;font-weight:700;text-align:center;margin-bottom:4px">Urlaubsplan '+year+' · '+stateName+'</div>'
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;height:calc(100vh - 40px)">'+monthsHTML+'</div>'
@@ -1851,7 +1861,7 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
   },[]);
   return(
     <div className="pt" style={ps.wrap}>
-      <style>{`@page{size:A4 landscape!important;margin:6mm;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.no-print{display:none!important;}}`}</style>
+      <style>{`@page{size:A4 landscape!important;margin:6mm;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.no-print{display:none!important;}a[href]:after{content:none!important;}}`}</style>
       {/* Schließen-Button — nur auf Bildschirm, nicht im Druck */}
       <button className="no-print" onClick={()=>onClose?.()} style={{position:"fixed",top:8,right:12,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer",zIndex:9999}}>✕ Schließen</button>
       <div style={{fontSize:11,fontWeight:700,textAlign:"center",marginBottom:4}}>Urlaubsplan {year} · {stateName}</div>
