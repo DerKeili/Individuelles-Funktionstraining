@@ -7,6 +7,7 @@ import {
   adminResetPassword, requestPasswordReset,
   getPasswordResetRequests, dismissResetRequest,
   createNotification, getMyNotifications, markNotificationRead,
+  clearMustChangePassword,
 } from "./supabase.js";
 
 // ─── Feiertagsdaten 2025–2027 (alle 16 Bundesländer) ─────────────────────────
