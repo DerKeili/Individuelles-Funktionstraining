@@ -637,18 +637,29 @@ function ForceChangePassword({user,onDone}){
   const[busy,setBusy]=useState(false);
   const[showPw,setShowPw]=useState(false);
 
+  // Passwort-Regeln prüfen
+  const checks={
+    len:pw.length>=8,
+    upper:/[A-Z]/.test(pw),
+    lower:/[a-z]/.test(pw),
+    digit:/[0-9]/.test(pw),
+  };
+  const allOk=checks.len&&checks.upper&&checks.lower&&checks.digit;
+
   async function submit(){
-    if(pw.length<6){setErr("Das Passwort muss mindestens 6 Zeichen haben.");return;}
+    if(!checks.len){setErr("Das Passwort muss mindestens 8 Zeichen haben.");return;}
+    if(!checks.upper){setErr("Das Passwort muss mindestens einen Großbuchstaben enthalten.");return;}
+    if(!checks.lower){setErr("Das Passwort muss mindestens einen Kleinbuchstaben enthalten.");return;}
+    if(!checks.digit){setErr("Das Passwort muss mindestens eine Zahl enthalten.");return;}
     if(pw!==pw2){setErr("Die Passwörter stimmen nicht überein.");return;}
     setBusy(true);setErr("");
     try{await onDone(pw);}
     catch(e){
-      // Fehlermeldungen übersetzen
       let msg=e.message||"Fehler beim Ändern des Passworts.";
       if(msg.includes("different from the old")){
         msg="Bitte wähle ein anderes Passwort als dein aktuelles Einmalpasswort.";
-      }else if(msg.includes("weak")||msg.includes("Password")){
-        msg="Das Passwort ist zu schwach. Bitte wähle ein sichereres Passwort.";
+      }else if(msg.toLowerCase().includes("weak")||msg.includes("at least")){
+        msg="Das Passwort ist zu schwach. Bitte erfülle alle Regeln unten.";
       }
       setErr(msg);setBusy(false);
     }
@@ -669,12 +680,28 @@ function ForceChangePassword({user,onDone}){
           <input style={S.inp} type={showPw?"text":"password"} value={pw} onChange={e=>setPw(e.target.value)} placeholder="Mindestens 6 Zeichen" autoFocus/>
           <button onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#8aaa5f",cursor:"pointer"}}>{showPw?"🙈":"👁"}</button>
         </div>
-        <div style={{marginBottom:16}}>
+        <div style={{marginBottom:14}}>
           <label style={S.lbl}>Passwort bestätigen</label>
-          <input style={S.inp} type={showPw?"text":"password"} value={pw2} onChange={e=>setPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+          <input style={S.inp} type={showPw?"text":"password"} value={pw2} onChange={e=>setPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&allOk&&submit()}/>
+        </div>
+        {/* Passwort-Regeln */}
+        <div style={{background:"#f8faf0",border:"1px solid #d5e8a0",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#5a6b4a",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.04em"}}>Passwort-Anforderungen</div>
+          {[
+            ["len","Mindestens 8 Zeichen"],
+            ["upper","Mindestens ein Großbuchstabe (A-Z)"],
+            ["lower","Mindestens ein Kleinbuchstabe (a-z)"],
+            ["digit","Mindestens eine Zahl (0-9)"],
+          ].map(([key,label])=>(
+            <div key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,marginBottom:4,color:checks[key]?"#15803d":"#94a3b8"}}>
+              <span style={{fontSize:14}}>{checks[key]?"✅":"⬜"}</span>
+              <span style={{textDecoration:checks[key]?"none":"none"}}>{label}</span>
+            </div>
+          ))}
+          <div style={{fontSize:11,color:"#8aaa5f",marginTop:6,fontStyle:"italic"}}>Sonderzeichen (!,@,# …) sind erlaubt und erhöhen die Sicherheit.</div>
         </div>
         {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6}}>{err}</div>}
-        <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1}} onClick={submit} disabled={busy}>
+        <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:(busy||!allOk||pw!==pw2)?0.5:1,cursor:(busy||!allOk||pw!==pw2)?"not-allowed":"pointer"}} onClick={submit} disabled={busy||!allOk||pw!==pw2}>
           {busy?"Wird gespeichert…":"Passwort festlegen & fortfahren"}
         </button>
       </div>
@@ -1517,6 +1544,19 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
               <div style={{position:"relative"}}><label style={S.lbl}>Aktuelles Passwort</label><input style={S.inp} type={showCur?"text":"password"} value={curPw} onChange={e=>setCurPw(e.target.value)}/><button onClick={()=>setShowCur(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showCur?"🙈":"👁"}</button></div>
               <div style={{position:"relative"}}><label style={S.lbl}>Neues Passwort</label><input style={S.inp} type={showNew?"text":"password"} value={npass} onChange={e=>setNpass(e.target.value)}/><button onClick={()=>setShowNew(v=>!v)} style={{position:"absolute",right:10,top:27,background:"none",border:"none",color:"#64748b",cursor:"pointer"}}>{showNew?"🙈":"👁"}</button></div>
               <div><label style={S.lbl}>Neues Passwort bestätigen</label><input style={S.inp} type="password" value={npass2} onChange={e=>setNpass2(e.target.value)}/></div>
+              <div style={{background:"#f8faf0",border:"1px solid #d5e8a0",borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#5a6b4a",marginBottom:6,textTransform:"uppercase"}}>Passwort-Anforderungen</div>
+                {[
+                  ["Mindestens 8 Zeichen",npass.length>=8],
+                  ["Ein Großbuchstabe (A-Z)",/[A-Z]/.test(npass)],
+                  ["Ein Kleinbuchstabe (a-z)",/[a-z]/.test(npass)],
+                  ["Eine Zahl (0-9)",/[0-9]/.test(npass)],
+                ].map(([label,ok],i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:7,fontSize:11.5,marginBottom:3,color:ok?"#15803d":"#94a3b8"}}>
+                    <span>{ok?"✅":"⬜"}</span><span>{label}</span>
+                  </div>
+                ))}
+              </div>
               {pwMsg&&<div style={{fontSize:12,color:"#f87171",background:"rgba(248,113,113,0.1)",padding:"8px 12px",borderRadius:6}}>{pwMsg}</div>}
               <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={changePw} disabled={busy}>Passwort ändern</button>
             </div>
