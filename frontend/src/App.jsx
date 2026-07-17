@@ -84,6 +84,7 @@ export default function App(){
   const [printMode,setPrintMode]=useState(null);
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
+  const profileLoadedRef=useRef(false);
 
   if(!styleRef.current){
     const s=document.createElement("style");
@@ -119,10 +120,22 @@ export default function App(){
       clearTimeout(loadTimeout);
     }).catch(()=>{clearTimeout(loadTimeout);setLoading(false);});
 
-    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(_,sess)=>{
+    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(event,sess)=>{
+      // USER_UPDATED (nach Passwortänderung): NUR wenn Profil schon geladen ist,
+      // ignorieren um must_change_password Schleife zu vermeiden.
+      if(event==="USER_UPDATED"&&profileLoadedRef.current){
+        setSession(sess);
+        return;
+      }
+      // Abmeldung
+      if(!sess){
+        setSession(null);setProfile(null);setProfiles([]);setEntries([]);
+        setLoading(false);profileLoadedRef.current=false;
+        return;
+      }
+      // Anmeldung / initiale Session / Token-Refresh: Profil laden
       setSession(sess);
-      if(sess){await loadAll(sess.user.id);}
-      else{setProfile(null);setProfiles([]);setEntries([]);setLoading(false);}
+      await loadAll(sess.user.id);
     });
     return()=>{subscription.unsubscribe();clearTimeout(loadTimeout);};
   },[]);
@@ -137,6 +150,7 @@ export default function App(){
       // Eigene Benachrichtigungen laden
       const notifs=await getMyNotifications(userId);
       setMyNotifications(notifs);
+      profileLoadedRef.current=true;
     }catch(e){
       // JWT-Zeitfehler: Token neu holen und nochmal versuchen
       if(e.message?.includes("JWT")||e.message?.includes("future")||e.message?.includes("expired")){
@@ -378,14 +392,26 @@ export default function App(){
   // Einmalpasswort: Mitarbeiter muss neues Passwort setzen
   if(profile?.must_change_password){
     return <ForceChangePassword user={profile} onDone={async(newPw)=>{
+      // WICHTIG: Reihenfolge — zuerst Flag in DB löschen, DANN Passwort ändern
+      // (updateUser löst onAuthStateChange aus das das Profil neu lädt)
       try{
-        // Neues Passwort setzen via Supabase Auth
-        const{error}=await supabase.auth.updateUser({password:newPw});
-        if(error)throw new Error(error.message);
+        // 1. Flag zuerst in der DB zurücksetzen
         await clearMustChangePassword(profile.id);
+        // 2. Lokalen State sofort aktualisieren
         setProfile(p=>({...p,must_change_password:false}));
-        notify("✅ Passwort erfolgreich geändert!");
-      }catch(e){throw e;}
+        // 3. Dann das Passwort ändern
+        const{error}=await supabase.auth.updateUser({password:newPw});
+        if(error){
+          // Passwort-Änderung fehlgeschlagen → Flag wieder setzen wäre falsch,
+          // da User schon durch ist. Nur Fehler zeigen.
+          throw new Error(error.message);
+        }
+        notify("✅ Passwort erfolgreich geändert! Willkommen.");
+      }catch(e){
+        // Bei Fehler: Flag bleibt false (User kann normal weiterarbeiten)
+        // aber Fehlermeldung zeigen
+        throw e;
+      }
     }}/>;
   }
 
@@ -616,7 +642,16 @@ function ForceChangePassword({user,onDone}){
     if(pw!==pw2){setErr("Die Passwörter stimmen nicht überein.");return;}
     setBusy(true);setErr("");
     try{await onDone(pw);}
-    catch(e){setErr(e.message);setBusy(false);}
+    catch(e){
+      // Fehlermeldungen übersetzen
+      let msg=e.message||"Fehler beim Ändern des Passworts.";
+      if(msg.includes("different from the old")){
+        msg="Bitte wähle ein anderes Passwort als dein aktuelles Einmalpasswort.";
+      }else if(msg.includes("weak")||msg.includes("Password")){
+        msg="Das Passwort ist zu schwach. Bitte wähle ein sichereres Passwort.";
+      }
+      setErr(msg);setBusy(false);
+    }
   }
 
   return(
