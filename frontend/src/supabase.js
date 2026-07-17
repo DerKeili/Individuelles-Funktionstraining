@@ -128,8 +128,12 @@ export async function adminResetPassword(userId, newPassword) {
     new_password: newPassword,
   });
   if (error) throw new Error(error.message);
-  // Flag setzen: Mitarbeiter muss Passwort ändern
-  await supabase.from("profiles").update({ must_change_password: true }).eq("id", userId);
+  // Flag setzen: Mitarbeiter muss Passwort ändern (Fehler ignorieren falls Spalte fehlt)
+  try {
+    await supabase.from("profiles").update({ must_change_password: true }).eq("id", userId);
+  } catch (e) {
+    console.warn("must_change_password Flag konnte nicht gesetzt werden:", e.message);
+  }
 }
 
 // Flag zurücksetzen nachdem Mitarbeiter Passwort geändert hat

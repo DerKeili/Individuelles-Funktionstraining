@@ -80,6 +80,7 @@ export default function App(){
   const [pendingView,setPendingView]=useState(null);
   const [myNotifications,setMyNotifications]=useState([]);
   const [pendingJumpYear,setPendingJumpYear]=useState(null);
+  const [dashRefresh,setDashRefresh]=useState(0);
   const [printMode,setPrintMode]=useState(null);
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
@@ -368,6 +369,12 @@ export default function App(){
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
 
+  // Session existiert aber Profil konnte nicht geladen werden → sauber ausloggen
+  if(session&&!profile&&!loading){
+    signOut().then(()=>{setSession(null);setProfile(null);});
+    return <LoginScreen onLogin={handleLogin}/>;
+  }
+
   // Einmalpasswort: Mitarbeiter muss neues Passwort setzen
   if(profile?.must_change_password){
     return <ForceChangePassword user={profile} onDone={async(newPw)=>{
@@ -504,7 +511,7 @@ export default function App(){
       {/* MAIN */}
       <main style={S.main} onClick={()=>setTooltip(null)}>
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
-        {view==="dashboard"&&<DashView users={isAdmin?pwu:pwu.filter(u=>u.id===session.user.id)} isAdmin={isAdmin} year={year} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
+        {view==="dashboard"&&<DashView users={isAdmin?pwu:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isAdmin} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{if(window.confirm("Mitarbeiter wirklich löschen?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
@@ -549,7 +556,7 @@ export default function App(){
       {modal?.type==="resetPw"&&<ResetPwModal
         user={modal.data.user}
         requestId={modal.data.requestId}
-        onDone={async(reqId)=>{if(reqId)await handleDismiss(reqId);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
+        onDone={async(reqId)=>{if(reqId){try{await dismissResetRequest(reqId);}catch(e){}}setDashRefresh(k=>k+1);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
         onClose={()=>setModal(null)}
       />}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
@@ -839,7 +846,7 @@ function printUserPDF(u, year) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
+function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
   const[resetRequests,setResetRequests]=useState([]);
   const[loadingReq,setLoadingReq]=useState(false);
 
@@ -847,7 +854,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser}){
     if(!isAdmin)return;
     setLoadingReq(true);
     getPasswordResetRequests().then(d=>setResetRequests(d||[])).catch(()=>{}).finally(()=>setLoadingReq(false));
-  },[isAdmin]);
+  },[isAdmin,refreshKey]);
 
   async function handleDismiss(id){
     await dismissResetRequest(id);
