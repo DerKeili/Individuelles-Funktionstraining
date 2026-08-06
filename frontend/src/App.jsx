@@ -86,6 +86,7 @@ export default function App(){
   const [notif,setNotif]=useState(null);
   const styleRef=useRef(false);
   const profileLoadedRef=useRef(false);
+  const [dbError,setDbError]=useState(false);
 
   if(!styleRef.current){
     const s=document.createElement("style");
@@ -100,8 +101,9 @@ export default function App(){
   useEffect(()=>{
     // Timeout: falls loadAll hängt, nach 8 Sekunden abbrechen
     const loadTimeout=setTimeout(()=>{
-      if(loading){setLoading(false);}
-    },8000);
+      setLoading(false);
+      setDbError(true);
+    },12000);
 
     getSession().then(async sess=>{
       if(!sess){clearTimeout(loadTimeout);setLoading(false);return;}
@@ -239,8 +241,20 @@ export default function App(){
 
   // ── Auth ──────────────────────────────────────────────────────────
   async function handleLogin(email,password){
-    await signIn(email,password);
-    // onAuthStateChange übernimmt den Rest
+    setLoading(true);
+    setDbError(false);
+    try{
+      await signIn(email,password);
+      // onAuthStateChange (SIGNED_IN) übernimmt loadAll
+      // Fallback: falls Event nicht feuert, nach kurzer Zeit selbst laden
+      const sess=await getSession();
+      if(sess&&!profileLoadedRef.current){
+        await loadAll(sess.user.id);
+      }
+    }catch(e){
+      setLoading(false);
+      throw e; // LoginScreen zeigt den Fehler
+    }
   }
   async function handleLogout(){
     await signOut();
@@ -376,6 +390,18 @@ export default function App(){
   const stateName=BUNDESLAENDER.find(b=>b[0]===bundesland)?.[1]||"";
   const pendingCount=entries.filter(e=>e.status==="pending").length;
 
+  if(dbError)return(
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:24}}>
+      <div style={{fontSize:44}}>⚠️</div>
+      <div style={{color:"#f1f5f9",fontSize:17,fontWeight:700,textAlign:"center"}}>Datenbank nicht erreichbar</div>
+      <div style={{color:"#94a3b8",fontSize:14,textAlign:"center",maxWidth:420,lineHeight:1.5}}>
+        Die Verbindung zur Datenbank ist fehlgeschlagen. Möglicherweise wurde die Datenbank wegen Inaktivität pausiert.
+      </div>
+      <button onClick={()=>{setDbError(false);setLoading(true);window.location.reload();}} style={{marginTop:8,background:"#5a8a1f",color:"#fff",border:"none",borderRadius:10,padding:"12px 28px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        Erneut versuchen
+      </button>
+    </div>
+  );
   if(loading)return(
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
       <div style={{fontSize:40}}>📅</div>
