@@ -278,9 +278,14 @@ export default function App(){
     notify("Mitarbeiter angelegt. Er kann sich nun anmelden.");
   }
   async function handleDeleteUser(id){
-    await deleteUser(id);
-    setProfiles(prev=>prev.filter(p=>p.id!==id));
-    notify("Mitarbeiter gelöscht.");
+    try{
+      await deleteUser(id);
+      setProfiles(prev=>prev.filter(p=>p.id!==id));
+      setEntries(prev=>prev.filter(e=>e.user_id!==id));
+      notify("Mitarbeiter vollständig gelöscht (Zugang, Profil und Einträge).");
+    }catch(e){
+      notify("Löschen fehlgeschlagen: "+e.message,"warn");
+    }
   }
 
   // ── Entries CRUD ──────────────────────────────────────────────────
@@ -583,7 +588,7 @@ export default function App(){
       <main style={S.main} onClick={()=>setTooltip(null)}>
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isAdmin?pwu:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isAdmin} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
-        {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{if(window.confirm("Mitarbeiter wirklich löschen?"))await handleDeleteUser(id);}}/>}
+        {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
@@ -1673,17 +1678,24 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   const[adminPw2,setAdminPw2]=useState("");
   const[pwErr,setPwErr]=useState("");
   const[resetSuccess,setResetSuccess]=useState(null);
+  const[saveErr,setSaveErr]=useState("");
   const[busy,setBusy]=useState(false);
 
   // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
   function numFocus(e){if(e.target.value==="0")e.target.select();}
 
   async function save(){
-    if(!f.vorname||!f.email){alert("Vorname und E-Mail sind Pflicht.");return;}
-    if(!initial&&!newUserPw){alert("Passwort für neuen Mitarbeiter erforderlich.");return;}
+    setSaveErr("");
+    if(!f.vorname||!f.email){setSaveErr("Vorname und E-Mail sind Pflichtfelder.");return;}
+    if(!f.email.includes("@")){setSaveErr("Bitte eine gültige E-Mail-Adresse eingeben.");return;}
+    if(!initial&&!newUserPw){setSaveErr("Bitte ein Startpasswort für den neuen Mitarbeiter vergeben.");return;}
+    if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
-    try{await onSave({...f,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});}
-    finally{setBusy(false);}
+    try{
+      await onSave({...f,email:f.email.trim().toLowerCase(),urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
+    }catch(e){
+      setSaveErr(e.message||"Speichern fehlgeschlagen.");
+    }finally{setBusy(false);}
   }
 
   async function saveAdminPwReset(){
@@ -1907,8 +1919,13 @@ Thomas Keilig`;
             )}
           </div>
         </div>
+        {saveErr&&(
+          <div style={{margin:"0 20px",padding:"10px 14px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,color:"#B91C1C",fontSize:14,lineHeight:1.4}}>
+            ⚠️ {saveErr}
+          </div>
+        )}
         <div style={S.mFt}>
-          <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>Speichern</button>
+          <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>{busy?"Speichert…":"Speichern"}</button>
           <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
         </div>
       </div>

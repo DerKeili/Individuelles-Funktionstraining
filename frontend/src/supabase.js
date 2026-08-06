@@ -40,8 +40,9 @@ export async function getSession() {
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 export async function getProfile(userId) {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  if (error) throw new Error("Profil-Ladefehler: " + error.message);
+  if (!data) throw new Error("Kein Profil gefunden für diesen Benutzer. Bitte Administrator kontaktieren.");
   return data;
 }
 export async function getAllProfiles() {
@@ -54,10 +55,39 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(error.message);
   return data;
 }
+// Datenbank-Fehlermeldungen in verständliches Deutsch übersetzen
+function friendlyUserError(msg) {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("bereits vergeben") || m.includes("duplicate key") || m.includes("users_email"))
+    return "Diese E-Mail-Adresse wird bereits verwendet. Bitte eine andere wählen.";
+  if (m.includes("verwaistes profil"))
+    return "Zu dieser E-Mail existiert noch ein altes Profil ohne Zugang. Bitte den Mitarbeiter zuerst in der Liste löschen.";
+  if (m.includes("nur administratoren"))
+    return "Nur Administratoren dürfen Benutzer anlegen oder löschen.";
+  if (m.includes("passwort zu kurz"))
+    return "Das Passwort muss mindestens 8 Zeichen lang sein.";
+  if (m.includes("could not find the function") || m.includes("does not exist"))
+    return "Die Datenbankfunktion fehlt. Bitte das SQL-Update in Supabase ausführen.";
+  if (m.includes("failed to fetch") || m.includes("networkerror"))
+    return "Keine Verbindung zur Datenbank. Bitte Internetverbindung prüfen.";
+  return msg || "Unbekannter Fehler.";
+}
+
 export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum }) {
+  const mail = (email || "").trim().toLowerCase();
+  if (!mail.includes("@")) throw new Error("Bitte eine gültige E-Mail-Adresse eingeben.");
+  if (!password || password.length < 8) throw new Error("Das Passwort muss mindestens 8 Zeichen lang sein.");
+
+  // Vorabprüfung: verwaistes Profil oder bereits vergebene E-Mail?
+  const { data: exists } = await supabase.from("profiles").select("id, vorname, nachname").ilike("email", mail).maybeSingle();
+  if (exists) {
+    const name = [exists.vorname, exists.nachname].filter(Boolean).join(" ") || mail;
+    throw new Error("Es gibt bereits einen Eintrag für " + name + " mit dieser E-Mail. Bitte diesen zuerst löschen oder eine andere Adresse verwenden.");
+  }
+
   // Admin-Session NICHT überschreiben → User direkt per RPC anlegen
   const { data, error } = await supabase.rpc("admin_create_user", {
-    p_email: email,
+    p_email: mail,
     p_password: password,
     p_vorname: vorname || "",
     p_nachname: nachname || "",
@@ -70,14 +100,22 @@ export async function createUser({ email, password, vorname, nachname, role, pos
     p_einstellungsdatum: einstellungsdatum || null,
     p_geburtsdatum: geburtsdatum || null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
 
-
+// Löscht Zugang, Profil und Einträge gemeinsam – verhindert verwaiste Profile
 export async function deleteUser(userId) {
-  const { error } = await supabase.from("profiles").delete().eq("id", userId);
-  if (error) throw new Error(error.message);
+  const { error } = await supabase.rpc("admin_delete_user", { target_user_id: userId });
+  if (!error) return;
+
+  // Fallback: falls die Funktion (noch) nicht existiert, wenigstens das Profil entfernen
+  if ((error.message || "").toLowerCase().includes("could not find the function")) {
+    const { error: e2 } = await supabase.from("profiles").delete().eq("id", userId);
+    if (e2) throw new Error(friendlyUserError(e2.message));
+    return;
+  }
+  throw new Error(friendlyUserError(error.message));
 }
 
 // ─── Entries ──────────────────────────────────────────────────────────────────
