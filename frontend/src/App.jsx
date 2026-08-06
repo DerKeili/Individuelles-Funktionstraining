@@ -410,10 +410,25 @@ export default function App(){
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
 
-  // Session existiert aber Profil konnte nicht geladen werden → sauber ausloggen
+  // Session existiert aber Profil fehlt → Fehlermeldung statt Endlos-Schleife
   if(session&&!profile&&!loading){
-    signOut().then(()=>{setSession(null);setProfile(null);});
-    return <LoginScreen onLogin={handleLogin}/>;
+    return (
+      <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:24}}>
+        <div style={{fontSize:44}}>⚠️</div>
+        <div style={{color:"#f1f5f9",fontSize:17,fontWeight:700,textAlign:"center"}}>Profil konnte nicht geladen werden</div>
+        <div style={{color:"#94a3b8",fontSize:14,textAlign:"center",maxWidth:440,lineHeight:1.5}}>
+          Die Anmeldung war erfolgreich, aber es konnte kein Benutzerprofil gefunden werden. Bitte wende dich an den Administrator.
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          <button onClick={async()=>{setLoading(true);const s=await getSession();if(s)await loadAll(s.user.id);else setLoading(false);}} style={{background:"#5a8a1f",color:"#fff",border:"none",borderRadius:10,padding:"11px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            Erneut versuchen
+          </button>
+          <button onClick={async()=>{await signOut();setSession(null);setProfile(null);profileLoadedRef.current=false;}} style={{background:"#334155",color:"#fff",border:"none",borderRadius:10,padding:"11px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            Abmelden
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Einmalpasswort: Mitarbeiter muss neues Passwort setzen
