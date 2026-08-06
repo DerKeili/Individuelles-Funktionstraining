@@ -244,16 +244,19 @@ export default function App(){
     setLoading(true);
     setDbError(false);
     try{
-      await signIn(email,password);
-      // onAuthStateChange (SIGNED_IN) übernimmt loadAll
-      // Fallback: falls Event nicht feuert, nach kurzer Zeit selbst laden
-      const sess=await getSession();
-      if(sess&&!profileLoadedRef.current){
-        await loadAll(sess.user.id);
+      const data=await signIn(email,password);
+      // Direkt Session + Profil laden — nicht auf onAuthStateChange warten
+      const userId=data?.user?.id||(await getSession())?.user?.id;
+      if(userId){
+        setSession(data?.session||await getSession());
+        await loadAll(userId);
+      }else{
+        setLoading(false);
+        throw new Error("Anmeldung fehlgeschlagen — keine Sitzung erhalten.");
       }
     }catch(e){
       setLoading(false);
-      throw e; // LoginScreen zeigt den Fehler
+      throw e;
     }
   }
   async function handleLogout(){
