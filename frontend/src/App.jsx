@@ -57,8 +57,79 @@ const isWE=(y,m,d)=>{let w=new Date(y,m,d).getDay();return w===0||w===6;};
 const toISO=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
 const fmtDE=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}.${m}.${y}`;};
 const wday=iso=>{const[y,m,d]=iso.split("-").map(Number);return["So","Mo","Di","Mi","Do","Fr","Sa"][new Date(y,m-1,d).getDay()];};
-function countWD(von,bis){if(!von||!bis)return 0;const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);let s=new Date(y1,m1-1,d1),e=new Date(y2,m2-1,d2);if(e<s)return 0;let c=0,cur=new Date(s);while(cur<=e){const d=cur.getDay();if(d!==0&&d!==6)c++;cur.setDate(cur.getDate()+1);}return c;}
+// ─── Urlaubstage-Berechnung mit Feiertagen ───────────────────────────────────
+// Bundesland der laufenden Sitzung (wird in App() bei jedem Render gesetzt)
+let AKT_BL="SN";
+// Tage, die nur zur Hälfte vom Urlaubskonto abgezogen werden (Format MM-TT)
+const HALBE_TAGE=["12-24","12-31"];
+const isoOf=dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+// Wieviel Urlaub kostet ein einzelner Tag? 0 = Wochenende/Feiertag, 0.5 = halber Tag, 1 = voll
+function tagesFaktor(dt){
+  const w=dt.getDay();
+  if(w===0||w===6)return 0;                       // Wochenende
+  const iso=isoOf(dt);
+  if(HALBE_TAGE.includes(iso.slice(5)))return 0.5; // Heiligabend / Silvester
+  if(isFT(iso,AKT_BL,dt.getFullYear()))return 0;   // gesetzlicher Feiertag
+  return 1;
+}
+function countWD(von,bis){
+  if(!von||!bis)return 0;
+  const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);
+  let s=new Date(y1,m1-1,d1),e=new Date(y2,m2-1,d2);
+  if(e<s)return 0;
+  let c=0,cur=new Date(s);
+  while(cur<=e){c+=tagesFaktor(cur);cur.setDate(cur.getDate()+1);}
+  return Math.round(c*2)/2;
+}
+// Zahl für die Anzeige: 4 → "4", 4.5 → "4,5"
+const fmtT=n=>{const v=Number(n)||0;return Number.isInteger(v)?String(v):String(v).replace(".",",");};
 function eDays(entries=[],type){return entries.filter(e=>e.type===type).reduce((s,e)=>s+countWD(e.von||e.von,e.bis||e.bis),0);}
+
+// ─── Geschlecht, Positionen & Berechtigungen ─────────────────────────────────
+const GESCHLECHTER=[["w","weiblich"],["m","männlich"],["d","divers"]];
+// scope: "alle" = darf alle bearbeiten · "bereich" = nur eigenen Fachbereich · "selbst" = nur sich
+const POSITIONEN=[
+  {key:"geschaeftsleitung",scope:"alle",   bereich:null,     l:{m:"Geschäftsleitung",w:"Geschäftsleitung",d:"Geschäftsleitung"}},
+  {key:"praxisleitung",    scope:"alle",   bereich:null,     l:{m:"Praxisleitung",w:"Praxisleitung",d:"Praxisleitung"}},
+  {key:"tl_physio",        scope:"bereich",bereich:"physio", l:{m:"Teamleitung Physiotherapie",w:"Teamleitung Physiotherapie",d:"Teamleitung Physiotherapie"}},
+  {key:"tl_ergo",          scope:"bereich",bereich:"ergo",   l:{m:"Teamleitung Ergotherapie",w:"Teamleitung Ergotherapie",d:"Teamleitung Ergotherapie"}},
+  {key:"tl_trainer",       scope:"bereich",bereich:"trainer",l:{m:"Teamleitung Trainer",w:"Teamleitung Trainer",d:"Teamleitung Trainer"}},
+  {key:"tl_logo",          scope:"bereich",bereich:"logo",   l:{m:"Teamleitung Logopädie",w:"Teamleitung Logopädie",d:"Teamleitung Logopädie"}},
+  {key:"tl_podo",          scope:"bereich",bereich:"podo",   l:{m:"Teamleitung Podologie",w:"Teamleitung Podologie",d:"Teamleitung Podologie"}},
+  {key:"physiotherapeut",  scope:"selbst", bereich:"physio", l:{m:"Physiotherapeut",w:"Physiotherapeutin",d:"Physiotherapeut/in"}},
+  {key:"ergotherapeut",    scope:"selbst", bereich:"ergo",   l:{m:"Ergotherapeut",w:"Ergotherapeutin",d:"Ergotherapeut/in"}},
+  {key:"logopaede",        scope:"selbst", bereich:"logo",   l:{m:"Logopäde",w:"Logopädin",d:"Logopäde/Logopädin"}},
+  {key:"podologe",         scope:"selbst", bereich:"podo",   l:{m:"Podologe",w:"Podologin",d:"Podologe/Podologin"}},
+  {key:"trainer",          scope:"selbst", bereich:"trainer",l:{m:"Trainer",w:"Trainerin",d:"Trainer/in"}},
+];
+const POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
+const BEREICH_NAME={physio:"Physiotherapie",ergo:"Ergotherapie",trainer:"Trainer",logo:"Logopädie",podo:"Podologie"};
+function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",bereich:null,l:null};}
+// Anzeigename je nach Geschlecht; unbekannte (alte) Werte werden unverändert gezeigt
+function posLabel(key,geschlecht){
+  const p=POS_MAP[key];
+  if(!p)return key||"—";
+  return p.l[geschlecht||"d"]||p.l.d;
+}
+// Darf "actor" das Profil/den Urlaub von "target" sehen und bearbeiten?
+function canManage(actor,target){
+  if(!actor||!target)return false;
+  if(actor.id===target.id)return true;
+  if(actor.role==="admin")return true;
+  const a=posInfo(actor.position);
+  if(a.scope==="alle")return true;
+  if(a.scope==="bereich")return posInfo(target.position).bereich===a.bereich;
+  return false;
+}
+// Hat jemand überhaupt Leitungsrechte (über sich selbst hinaus)?
+function istLeitung(p){
+  if(!p)return false;
+  if(p.role==="admin")return true;
+  const s=posInfo(p.position).scope;
+  return s==="alle"||s==="bereich";
+}
+const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
+const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
 const lighten=(hex,f=0.4)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`#${Math.round(r+(255-r)*f).toString(16).padStart(2,"0")}${Math.round(g+(255-g)*f).toString(16).padStart(2,"0")}${Math.round(b+(255-b)*f).toString(16).padStart(2,"0")}`;};
 const PRINT_STYLE=`@media print{body *{visibility:hidden!important;}.pt,.pt *{visibility:visible!important;}.pt{position:fixed;left:0;top:0;width:100%;height:100%;background:#fff;z-index:9999;}@page{margin-top:6mm;margin-bottom:6mm;size:A4 landscape;margin:6mm;}}`;
@@ -74,6 +145,7 @@ export default function App(){
   const [bundesland,setBundesland]=useState("SN");
   const [showFerien,setShowFerien]=useState(true);
   const [showFeiertage,setShowFeiertage]=useState(true);
+  const [kalBereich,setKalBereich]=useState("alle");   // Bereichsfilter im Kalender (nur Leitung)
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
   const [tooltip,setTooltip]=useState(null);
@@ -96,32 +168,64 @@ export default function App(){
   }
 
   const isAdmin=profile?.role==="admin";
+  const isLeitung=istLeitung(profile);
+  AKT_BL=bundesland;   // Feiertagslogik der Urlaubsberechnung auf das gewählte Bundesland setzen
+  // Nur Geschäfts-/Praxisleitung und Administratoren sehen alle Bereiche und dürfen umschalten
+  const darfBereichFiltern=isAdmin||posInfo(profile?.position).scope==="alle";
 
   // ── Session-Init ──────────────────────────────────────────────────
-  useEffect(()=>{
-    // Timeout: falls loadAll hängt, nach 8 Sekunden abbrechen
-    const loadTimeout=setTimeout(()=>{
-      setLoading(false);
-      setDbError(true);
-    },12000);
+  // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
+  function sessionAbgelaufen(sess){
+    const last=sess?.user?.last_sign_in_at;
+    if(!last)return false;
+    const anmeldung=new Date(last);
+    if(isNaN(anmeldung.getTime()))return false;
+    if(Date.now()-anmeldung.getTime()>24*60*60*1000)return true;      // älter als 24 h
+    const heute=new Date();
+    return anmeldung.getFullYear()!==heute.getFullYear()
+        || anmeldung.getMonth()!==heute.getMonth()
+        || anmeldung.getDate()!==heute.getDate();                       // anderer Kalendertag
+  }
 
-    getSession().then(async sess=>{
-      if(!sess){clearTimeout(loadTimeout);setLoading(false);return;}
+  // Netzwerkaufruf mit mehreren Versuchen — fängt schlafende Verbindungen nach App-Wechsel ab
+  async function mitWiederholung(fn,versuche=3){
+    let letzterFehler;
+    for(let i=0;i<versuche;i++){
+      try{return await fn();}
+      catch(e){letzterFehler=e;if(i<versuche-1)await new Promise(r=>setTimeout(r,700*(i+1)));}
+    }
+    throw letzterFehler;
+  }
 
-      // Tägliche Re-Authentifizierung: wenn Session älter als 24h → abmelden
-      const sessionAge=Date.now()-(new Date(sess.user.last_sign_in_at||0).getTime());
-      const MAX_SESSION_AGE=24*60*60*1000; // 24 Stunden
-      if(sessionAge>MAX_SESSION_AGE){
+  const bootRef=useRef(false);
+  async function boot(){
+    if(bootRef.current)return;          // kein paralleler Doppelstart
+    bootRef.current=true;
+    setDbError(false);
+    setLoading(true);
+    try{
+      const sess=await mitWiederholung(()=>getSession());
+      if(!sess){setLoading(false);return;}
+      if(sessionAbgelaufen(sess)){
         await signOut();
-        clearTimeout(loadTimeout);
+        setSession(null);setProfile(null);setProfiles([]);setEntries([]);
+        profileLoadedRef.current=false;
         setLoading(false);
         return;
       }
-
       setSession(sess);
       await loadAll(sess.user.id);
-      clearTimeout(loadTimeout);
-    }).catch(()=>{clearTimeout(loadTimeout);setLoading(false);});
+    }catch(e){
+      // Nur melden, wenn die App wirklich sichtbar ist — sonst still im Hintergrund lassen
+      if(document.visibilityState==="visible")setDbError(true);
+      setLoading(false);
+    }finally{
+      bootRef.current=false;
+    }
+  }
+
+  useEffect(()=>{
+    boot();
 
     const{data:{subscription}}=supabase.auth.onAuthStateChange(async(event,sess)=>{
       // USER_UPDATED (nach Passwortänderung): NUR wenn Profil schon geladen ist,
@@ -140,8 +244,59 @@ export default function App(){
       setSession(sess);
       await loadAll(sess.user.id);
     });
-    return()=>{subscription.unsubscribe();clearTimeout(loadTimeout);};
+    return()=>{subscription.unsubscribe();};
   },[]);
+
+  // ── Rückkehr aus dem Hintergrund: automatisch neu verbinden ───────
+  const dbErrorRef=useRef(false);
+  const sessionRef=useRef(null);
+  const profileRef=useRef(null);
+  useEffect(()=>{dbErrorRef.current=dbError;},[dbError]);
+  useEffect(()=>{sessionRef.current=session;},[session]);
+  useEffect(()=>{profileRef.current=profile;},[profile]);
+
+  useEffect(()=>{
+    async function beiRueckkehr(){
+      if(document.visibilityState!=="visible")return;
+      // Fehleranzeige? Dann still im Hintergrund einen neuen Versuch starten
+      if(dbErrorRef.current){await boot();return;}
+      const sess=sessionRef.current;
+      if(!sess)return;
+      // Neuer Tag angebrochen, während die App im Hintergrund lag → abmelden
+      if(sessionAbgelaufen(sess)){
+        await signOut();
+        notify("Neuer Tag – bitte melde dich erneut an.","warn");
+        return;
+      }
+      // Verbindung auffrischen; schlägt das fehl, sauber neu starten
+      try{
+        await mitWiederholung(()=>getProfile(sess.user.id),2);
+        await loadEntries(istLeitung(profileRef.current),sess.user.id);
+      }catch(e){await boot();}
+    }
+    document.addEventListener("visibilitychange",beiRueckkehr);
+    window.addEventListener("pageshow",beiRueckkehr);
+    window.addEventListener("online",beiRueckkehr);
+    window.addEventListener("focus",beiRueckkehr);
+    return()=>{
+      document.removeEventListener("visibilitychange",beiRueckkehr);
+      window.removeEventListener("pageshow",beiRueckkehr);
+      window.removeEventListener("online",beiRueckkehr);
+      window.removeEventListener("focus",beiRueckkehr);
+    };
+  },[]);
+
+  // Tageswechsel auch bei durchgehend geöffneter App erkennen (Prüfung jede Minute)
+  useEffect(()=>{
+    if(!session)return;
+    const t=setInterval(async()=>{
+      if(sessionAbgelaufen(sessionRef.current)){
+        await signOut();
+        notify("Neuer Tag – bitte melde dich erneut an.","warn");
+      }
+    },60000);
+    return()=>clearInterval(t);
+  },[session]);
 
   async function loadAll(userId){
     setLoading(true);
@@ -149,7 +304,7 @@ export default function App(){
       const[prof,profs]=await Promise.all([getProfile(userId),getAllProfiles()]);
       setProfile(prof);
       setProfiles(profs);
-      await loadEntries(prof.role==="admin",userId);
+      await loadEntries(istLeitung(prof),userId);
       // Eigene Benachrichtigungen laden
       const notifs=await getMyNotifications(userId);
       setMyNotifications(notifs);
@@ -161,7 +316,7 @@ export default function App(){
           await supabase.auth.refreshSession();
           const[prof,profs]=await Promise.all([getProfile(userId),getAllProfiles()]);
           setProfile(prof);setProfiles(profs);
-          await loadEntries(prof.role==="admin",userId);
+          await loadEntries(istLeitung(prof),userId);
         }catch(e2){notify(e2.message,"warn");}
       } else {
         notify(e.message,"warn");
@@ -178,7 +333,7 @@ export default function App(){
       try{
         // Laden ohne Spinner
         let newEntries=[];
-        if(isAdmin){
+        if(isLeitung){
           newEntries=await getAllEntries();
           setEntries(newEntries);
           // Neue ausstehende Einträge? → Benachrichtigung
@@ -214,7 +369,7 @@ export default function App(){
       }catch(e){}
     },30000);
     return()=>clearInterval(interval);
-  },[session,isAdmin,profile]);
+  },[session,isLeitung,profile]);
 
   async function loadEntries(isAdm,userId){
     try{
@@ -291,8 +446,11 @@ export default function App(){
   // ── Entries CRUD ──────────────────────────────────────────────────
   async function handleCreateEntry(data){
     const{user_id,type,von,bis,note}=data;
-    // Konfliktcheck (Trainer)
-    if(!isAdmin){
+    const zielProfil=profiles.find(p=>p.id===user_id)||null;
+    // Wer den Zielmitarbeiter führen darf, trägt direkt bestätigt ein (eigener Urlaub nicht)
+    const sofortBestaetigt=isAdmin||(user_id!==profile?.id&&canManage(profile,zielProfil));
+    // Konfliktcheck (Mitarbeiter)
+    if(!sofortBestaetigt){
       const conflicts=await checkConflicts(user_id,von,bis);
       if(conflicts.length>0){
         const names=conflicts.map(c=>c.profiles?.vorname||"Jemand").join(", ");
@@ -300,13 +458,13 @@ export default function App(){
       }
     }
     const e=await createEntry({user_id,type,von,bis,note});
-    if(isAdmin){await setEntryStatus(e.id,"confirmed");}
-    await loadEntries(isAdmin,session.user.id);
-    notify(isAdmin?"Eintrag bestätigt gespeichert.":"Urlaubsantrag eingereicht – wartet auf Genehmigung.");
+    if(sofortBestaetigt){await setEntryStatus(e.id,"confirmed");}
+    await loadEntries(isLeitung,session.user.id);
+    notify(sofortBestaetigt?"Eintrag bestätigt gespeichert.":"Urlaubsantrag eingereicht – wartet auf Genehmigung.");
   }
   async function handleUpdateEntry(id,data){
     await updateEntry(id,data);
-    await loadEntries(isAdmin,session.user.id);
+    await loadEntries(isLeitung,session.user.id);
     notify("Eintrag aktualisiert.");
   }
   async function handleSetStatus(id,status){
@@ -338,20 +496,20 @@ export default function App(){
     } else {
       await setEntryStatus(id,status);
     }
-    await loadEntries(isAdmin,session.user.id);
+    await loadEntries(isLeitung,session.user.id);
     notify(status==="confirmed"?"✅ Eintrag bestätigt!":"❌ Eintrag abgelehnt.","success");
   }
   async function handleDeleteEntry(id, adminNote=""){
     const e=entries.find(x=>x.id===id);
     await deleteEntry(id);
     // Mitarbeiter benachrichtigen wenn Admin einen fremden Eintrag löscht
-    if(e&&isAdmin&&e.user_id!==session.user.id){
+    if(e&&isLeitung&&e.user_id!==session.user.id){
       const msg=adminNote?.trim()
         ?`Dein Urlaubseintrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde vom Admin gelöscht. Hinweis: ${adminNote}`
         :`Dein Urlaubseintrag (${fmtDE(e.von)} – ${fmtDE(e.bis)}) wurde vom Admin gelöscht.`;
       await createNotification(e.user_id,msg,"rejected");
     }
-    await loadEntries(isAdmin,session.user.id);
+    await loadEntries(isLeitung,session.user.id);
     notify("Eintrag gelöscht.");
   }
   async function handleAdminResetPw(userId,newPw){
@@ -385,7 +543,18 @@ export default function App(){
 
   // Kalender: bestätigte + eigene pending
   function calEntries(){
-    return entries.filter(e=>e.status==="confirmed"||(e.user_id===session?.user.id));
+    const sichtbar=entries.filter(e=>{
+      if(e.user_id===session?.user.id)return true;              // eigene immer
+      if(e.status!=="confirmed")return false;                    // fremde nur bestätigt
+      return canManage(profile,profiles.find(p=>p.id===e.user_id)); // und nur wenn erlaubt
+    });
+    if(!darfBereichFiltern||kalBereich==="alle")return sichtbar;
+    return sichtbar.filter(e=>{
+      if(e.user_id===session?.user.id)return true;
+      const pos=profiles.find(p=>p.id===e.user_id)?.position;
+      if(kalBereich==="leitung")return posInfo(pos).scope==="alle";
+      return posInfo(pos).bereich===kalBereich;
+    });
   }
   // Profiles mit ihren Einträgen zusammenführen
   function profilesWithEntries(){
@@ -474,11 +643,15 @@ export default function App(){
     }
   }
 
-  const navItems=isAdmin
-    ?[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["mitarbeiter","👥 Mitarbeiter"],["eintraege","📋 Einträge"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]]
+  const navItems=isLeitung
+    ?[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["mitarbeiter","👥 Mitarbeiter"],["eintraege","📋 Einträge"],
+      ...(isAdmin?[]:[["meinurlaub","🏖 Mein Urlaub"]]),
+      ["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]]
     :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]];
 
   const pwu=profilesWithEntries();
+  // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
+  const meineLeute=pwu.filter(u=>canManage(profile,u));
 
   return(
     <div style={S.app}>
@@ -505,7 +678,7 @@ export default function App(){
             <div style={{...S.av,background:profile?.color||"#2563EB"}}>{profile?.vorname?.[0]||"?"}</div>
             <div>
               <div style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>{profile?.vorname} {profile?.nachname}</div>
-              <div style={{fontSize:10,color:isAdmin?"#fbbf24":"#64748b"}}>{isAdmin?"Administrator":"Trainer"}</div>
+              <div style={{fontSize:10,color:isAdmin?"#fbbf24":"#64748b"}}>{posLabel(profile?.position,profile?.geschlecht)}{isAdmin?" · Administrator":""}</div>
             </div>
           </div>
           <button style={S.pBtn} onClick={()=>handlePrint("kalender")} title="Kalender">🖨</button>
@@ -519,7 +692,7 @@ export default function App(){
         {navItems.map(([id,lbl])=>(
           <button key={id} style={{...S.navBtn,...(view===id?S.navAct:{})}} onClick={()=>handleNavClick(id)}>{lbl}</button>
         ))}
-        {isAdmin&&pendingCount>0&&<button onClick={()=>{
+        {isLeitung&&pendingCount>0&&<button onClick={()=>{
           const firstPending=entries.filter(e=>e.status==="pending")
             .sort((a,b)=>a.von.localeCompare(b.von))[0];
           if(firstPending?.von){
@@ -530,9 +703,23 @@ export default function App(){
           setView("eintraege");
         }} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
         <div style={S.legend}>
-          {pwu.filter(u=>u.entries.some(e=>e.status==="confirmed")).map(u=>(
+          {pwu.filter(u=>canManage(profile,u)&&u.entries.some(e=>e.status==="confirmed")).map(u=>(
             <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
           ))}
+          {/* Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
+          {darfBereichFiltern&&view==="kalender"&&(
+            <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",borderLeft:"1px solid #d5e8a0",paddingLeft:8,marginLeft:2}}>
+              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"]].map(([k,lbl])=>(
+                <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
+                  background:kalBereich===k?"#e8f3d6":"none",cursor:"pointer",
+                  border:"1px solid "+(kalBereich===k?"#7ab529":"#cbd5e1"),
+                  borderRadius:14,padding:"3px 9px",transition:"all .15s",
+                  opacity:kalBereich===k?1:0.55,
+                  fontSize:11,fontWeight:600,color:kalBereich===k?"#4a6b0f":"#94a3b8",whiteSpace:"nowrap",
+                }}>{lbl}</button>
+              ))}
+            </div>
+          )}
           {/* Ferien Toggle — klickbar */}
           <button onClick={()=>setShowFerien(v=>!v)} style={{
             display:"flex",alignItems:"center",gap:5,background:"none",cursor:"pointer",
@@ -587,9 +774,9 @@ export default function App(){
       {/* MAIN */}
       <main style={S.main} onClick={()=>setTooltip(null)}>
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
-        {view==="dashboard"&&<DashView users={isAdmin?pwu:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isAdmin} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
-        {view==="mitarbeiter"&&isAdmin&&<MitView users={pwu} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isAdmin&&<EintAdmin entries={entries} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
+        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
+        {view==="eintraege"&&isLeitung&&<EintAdmin entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
@@ -672,8 +859,8 @@ export default function App(){
       {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
-      {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={entries.filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
-      {printMode==="liste"&&<PrintList year={year} users={pwu} stateName={stateName} onClose={()=>setPrintMode(null)}/>}
+      {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={calEntries().filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
+      {printMode==="liste"&&<PrintList year={year} users={meineLeute} stateName={stateName} onClose={()=>setPrintMode(null)}/>}
     </div>
   );
 }
@@ -905,7 +1092,7 @@ function printUserPDF(u, year) {
   const rows = uEntries.map(e =>
     "<tr><td>"+(TL[e.type]||e.type)+"</td>"
     +"<td>"+fde(e.von)+"</td><td>"+fde(e.bis)+"</td>"
-    +"<td style='text-align:center;font-weight:bold'>"+countWD(e.von,e.bis)+"</td>"
+    +"<td style='text-align:center;font-weight:bold'>"+fmtT(countWD(e.von,e.bis))+"</td>"
     +"<td>"+(e.created_at?new Date(e.created_at).toLocaleDateString("de-DE"):"")+"</td>"
     +"<td><span class='"+(e.status==="confirmed"?"ok":"pend")+"'>"+(e.status==="confirmed"?"Bestätigt":"Ausstehend")+"</span></td></tr>"
   ).join("");
@@ -935,7 +1122,7 @@ function printUserPDF(u, year) {
     +"<div><div style='font-size:14px;font-weight:bold;color:#2d3a2e;margin-bottom:2px;'>Urlaubsübersicht "+year+"</div>"
     +"<div style='font-size:9px;color:#666;'>Individuelles Funktionstraining · TZ Westlausitz</div></div></div>"
     +"<div class='meta'>Mitarbeiter: <strong>"+u.vorname+" "+u.nachname+"</strong>"
-    +" &nbsp;|&nbsp; Position: "+(u.position||"Trainer")
+    +" &nbsp;|&nbsp; Position: "+posLabel(u.position,u.geschlecht)
     +" &nbsp;|&nbsp; Erstellt: "+new Date().toLocaleDateString("de-DE")+"</div>"
     +"<div class='sum'>"
     +"<div class='sb'><div class='sv'>"+(u.urlaubstage||30)+"</div><div class='sl'>Urlaubstage gesamt</div></div>"
@@ -958,15 +1145,16 @@ function printUserPDF(u, year) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
+function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=0}){
+  const istEchterAdmin=viewer?.role==="admin";
   const[resetRequests,setResetRequests]=useState([]);
   const[loadingReq,setLoadingReq]=useState(false);
 
   useEffect(()=>{
-    if(!isAdmin)return;
+    if(!istEchterAdmin)return;
     setLoadingReq(true);
     getPasswordResetRequests().then(d=>setResetRequests(d||[])).catch(()=>{}).finally(()=>setLoadingReq(false));
-  },[isAdmin,refreshKey]);
+  },[istEchterAdmin,refreshKey]);
 
   async function handleDismiss(id){
     await dismissResetRequest(id);
@@ -978,7 +1166,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
       <h2 style={S.pgT}>Dashboard {year}</h2>
 
       {/* ── Passwort-Reset-Anfragen (nur Admin) ── */}
-      {isAdmin&&resetRequests.length>0&&(
+      {istEchterAdmin&&resetRequests.length>0&&(
         <div style={{background:"#fff7ed",borderRadius:12,border:"2px solid #f0932b",padding:16,marginBottom:20}}>
           <div style={{fontWeight:800,fontSize:14,color:"#92400e",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:20}}>🔔</span>
@@ -1008,7 +1196,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
           </div>
         </div>
       )}
-      {isAdmin&&resetRequests.length===0&&!loadingReq&&(
+      {istEchterAdmin&&resetRequests.length===0&&!loadingReq&&(
         <div style={{fontSize:12,color:"#8aaa5f",marginBottom:12}}>✅ Keine offenen Passwort-Reset-Anfragen</div>
       )}
 
@@ -1024,7 +1212,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{...S.av,width:40,height:40,fontSize:16,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>
-                  <div><div style={{fontWeight:700,fontSize:15,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#5a6b4a",fontWeight:500}}>{u.position||"Trainer"}</div></div>
+                  <div><div style={{fontWeight:700,fontSize:15,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div><div style={{fontSize:11,color:"#5a6b4a",fontWeight:500}}>{posLabel(u.position,u.geschlecht)}</div></div>
                 </div>
                 <div style={{display:"flex",gap:6}}>
                   <button onClick={()=>printUserPDF(u,year)} style={{...S.icnBtn,background:"#475569",color:"#fff",border:"none"}} title="Urlaub als PDF drucken">🖨</button>
@@ -1033,12 +1221,12 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
                 <StatBox label="Urlaub" val={total} total={u.urlaubstage||30} color={u.color||"#2563EB"}/>
-                <StatBox label="Überstunden" val={ueU} total={u.ueberstunden||0} color={lighten(u.color||"#2563EB",0.3)}/>
+                <StatBox label="Überstunden" val={fmtT(ueU)} total={u.ueberstunden||0} color={lighten(u.color||"#2563EB",0.3)}/>
               </div>
               <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:entries.length>0?10:0}}>
-                {rstU>0&&<Chip text={`↩ Resturlaub: ${rstU}T`} bg={ca(u.color||"#2563EB",0.12)} col={lighten(u.color||"#2563EB",0.2)}/>}
-                <Chip text={rem>=0?`✅ Noch: ${rem}T`:`⚠ Überzogen: ${Math.abs(rem)}T`} bg={rem<0?"rgba(248,113,113,0.15)":"rgba(100,116,139,0.12)"} col={rem<0?"#f87171":"#94a3b8"}/>
-                {(u.ueberstunden||0)>0&&<Chip text={ueRem>=0?`⏱ ÜS-Rest: ${ueRem}T`:`⏱ ÜS+: ${Math.abs(ueRem)}T`} bg="rgba(139,92,246,0.12)" col="#a78bfa"/>}
+                {rstU>0&&<Chip text={`↩ Resturlaub: ${fmtT(rstU)}T`} bg={ca(u.color||"#2563EB",0.12)} col={lighten(u.color||"#2563EB",0.2)}/>}
+                <Chip text={rem>=0?`✅ Noch: ${fmtT(rem)}T`:`⚠ Überzogen: ${fmtT(Math.abs(rem))}T`} bg={rem<0?"rgba(248,113,113,0.15)":"rgba(100,116,139,0.12)"} col={rem<0?"#f87171":"#94a3b8"}/>
+                {(u.ueberstunden||0)>0&&<Chip text={ueRem>=0?`⏱ ÜS-Rest: ${fmtT(ueRem)}T`:`⏱ ÜS+: ${fmtT(Math.abs(ueRem))}T`} bg="rgba(139,92,246,0.12)" col="#a78bfa"/>}
                 {pend>0&&<Chip text={`⏳ ${pend} ausstehend`} bg="rgba(251,191,36,0.12)" col="#fbbf24"/>}
               </div>
               {entries.length>0&&(
@@ -1049,7 +1237,7 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
                         <div style={{width:6,height:6,borderRadius:"50%",background:u.color||"#2563EB",flexShrink:0}}/>
                         <div>
                           <div style={{fontSize:12,color:"#2d3a2e",fontWeight:500}}>{fmtDE(e.von)} – {fmtDE(e.bis)}</div>
-                          <div style={{fontSize:10,color:"#5a6b4a"}}>{TL[e.type]||e.type} · {countWD(e.von,e.bis)} T</div>
+                          <div style={{fontSize:10,color:"#5a6b4a"}}>{TL[e.type]||e.type} · {fmtT(countWD(e.von,e.bis))} T</div>
                         </div>
                       </div>
                       <StBadge status={e.status}/>
@@ -1064,21 +1252,21 @@ function DashView({users,isAdmin,year,onEdit,onResetPwForUser,refreshKey=0}){
     </div>
   );
 }
-function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{val}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
+function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{fmtT(val)}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
-function MitView({users,onAdd,onEdit,onDelete}){
+function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
-        <button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>
+        {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>}
       </div>
       <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f8faf0"}}>{["Name","E-Mail","Rolle","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:"#f8faf0"}}>{["Name","Position","Berechtigung","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
               const entries=u.entries||[];
@@ -1086,12 +1274,12 @@ function MitView({users,onAdd,onEdit,onDelete}){
               return(
                 <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
                   <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{...S.av,width:30,height:30,fontSize:13,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>{u.vorname} {u.nachname}</div></td>
-                  <td style={{...S.td,fontSize:12,color:"#8aaa5f"}}>{u.email}</td>
-                  <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{u.role==="admin"?"Admin":"Trainer"}</span></td>
-                  <td style={S.td}>{urlT} / {u.urlaubstage||30} T</td>
-                  <td style={S.td}>{ueT} / {u.ueberstunden||0} T</td>
+                  <td style={{...S.td,fontSize:12,color:"#5a6b4a"}}>{posLabel(u.position,u.geschlecht)}<div style={{fontSize:11,color:"#8aaa5f"}}>{u.email}</div></td>
+                  <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{rolleLabel(u.role)}</span></td>
+                  <td style={S.td}>{fmtT(urlT)} / {u.urlaubstage||30} T</td>
+                  <td style={S.td}>{fmtT(ueT)} / {u.ueberstunden||0} T</td>
                   <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/>}</td>
-                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button><button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button></div></td>
+                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
                 </tr>
               );
             })}
@@ -1127,7 +1315,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
                 <td style={S.td}><span style={{fontSize:11,background:ca(e.pColor,0.2),color:e.pColor,borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
-                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{fmtT(countWD(e.von,e.bis))}</td>
                 <td style={{...S.td,fontSize:11,color:"#8aaa5f"}}>
                   {e.created_at?new Date(e.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
                 </td>
@@ -1257,13 +1445,13 @@ tr:nth-child(even) td{background:#f9fdf5;}
 </div>
 <div class="meta">
   Mitarbeiter: <strong>${user?.vorname} ${user?.nachname}</strong> &nbsp;|&nbsp;
-  Position: ${user?.position||"Trainer"} &nbsp;|&nbsp;
+  Position: ${posLabel(user?.position,user?.geschlecht)} &nbsp;|&nbsp;
   Erstellt am: ${new Date().toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"})}
 </div>
 <div class="sum">
   <div class="sum-box"><div class="sv">${user?.urlaubstage||30}</div><div class="sl">Urlaubstage gesamt</div></div>
-  <div class="sum-box"><div class="sv">${urlT+rstT}</div><div class="sl">Genommen / Beantragt</div></div>
-  <div class="sum-box"><div class="sv" style="color:${rem<0?"#dc2626":"#5a8a1f"}">${rem}</div><div class="sl">Verbleibend</div></div>
+  <div class="sum-box"><div class="sv">${fmtT(urlT+rstT)}</div><div class="sl">Genommen / Beantragt</div></div>
+  <div class="sum-box"><div class="sv" style="color:${rem<0?"#dc2626":"#5a8a1f"}">${fmtT(rem)}</div><div class="sl">Verbleibend</div></div>
 </div>
 <table>
   <thead><tr><th>Typ</th><th>Von</th><th>Bis</th><th>Werktage</th><th>Beantragt am</th><th>Status</th></tr></thead>
@@ -1271,7 +1459,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
     <td>${TL[e.type]||e.type}</td>
     <td>${fde(e.von)}</td>
     <td>${fde(e.bis)}</td>
-    <td style="text-align:center;font-weight:bold">${countWD(e.von,e.bis)}</td>
+    <td style="text-align:center;font-weight:bold">${fmtT(countWD(e.von,e.bis))}</td>
     <td>${e.created_at?new Date(e.created_at).toLocaleDateString("de-DE"):"—"}</td>
     <td><span class="${e.status==="confirmed"?"ok":"pend"}">${e.status==="confirmed"?"✓ Bestätigt":"⏳ Ausstehend"}</span></td>
   </tr>`).join("")}</tbody>
@@ -1298,7 +1486,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
         </div>
       </div>
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
-        {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${ueU}/${user.ueberstunden}`,false]]:[])].map(([ic,lb,vl,warn])=>(
+        {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${fmtT(ueU)}/${user.ueberstunden}`,false]]:[])].map(([ic,lb,vl,warn])=>(
           <div key={lb} style={{background:"#fff",borderRadius:10,padding:"12px 16px",border:`1.5px solid ${warn?"#fca5a5":"#d4e6d8"}`,minWidth:90,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
             <div style={{fontSize:20,fontWeight:800,color:warn?"#dc2626":"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{vl}</div>
@@ -1316,7 +1504,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
                 <td style={S.td}><span style={{fontSize:11,background:ca(user?.color||"#2563EB",0.2),color:user?.color||"#2563EB",borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span></td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.von)}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{fmtDE(e.bis)}</td>
-                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{countWD(e.von,e.bis)}</td>
+                <td style={{...S.td,fontWeight:600,color:"#8aaa5f"}}>{fmtT(countWD(e.von,e.bis))}</td>
                 <td style={{...S.td,fontSize:11,color:"#8aaa5f"}}>
                   {e.created_at?new Date(e.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
                 </td>
@@ -1405,7 +1593,7 @@ function FerView({year,state,stateName}){
               <div key={i} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #d5e8a0",borderLeft:"4px solid #f9a8d4",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
                 <div style={{fontWeight:700,fontSize:13,color:"#2d3a2e",marginBottom:3}}>{n}</div>
                 <div style={{fontSize:12,color:"#5a6b4a"}}>{fmtDE(v)} – {fmtDE(b)}</div>
-                <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>{countWD(v,b)} Werktage</div>
+                <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>{fmtT(countWD(v,b))} Werktage</div>
               </div>
             ))}
           </div>
@@ -1521,7 +1709,7 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
           <div style={{...S.av,width:52,height:52,fontSize:20,background:form.color}}>{form.vorname?.[0]||"?"}</div>
           <div>
             <div style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{form.vorname} {form.nachname}</div>
-            <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#5a6b4a",fontWeight:600}}>{user?.role==="admin"?"Administrator":"Trainer"}</div>
+            <div style={{fontSize:12,color:user?.role==="admin"?"#92400e":"#5a6b4a",fontWeight:600}}>{posLabel(user?.position,user?.geschlecht)} · {rolleLabel(user?.role)}</div>
             <div style={{fontSize:12,color:"#8aaa5f"}}>{user?.email}</div>
           </div>
         </div>
@@ -1539,8 +1727,8 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
           </div>
           {/* Zeile 2: Position */}
           <div><label style={S.lbl}>Position</label>
-            <input style={S.inp} value={form.position}
-              onChange={e=>updateForm("position",e.target.value)}/>
+            <input style={{...S.inp,background:"#f1f5f0",color:"#5a6b4a"}} value={posLabel(user?.position,user?.geschlecht)} readOnly/>
+            <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Die Position legt die Berechtigungen fest und wird von der Leitung vergeben.</div>
           </div>
           {/* Zeile 3: Geburtsdatum alleine - iOS date braucht volle Breite */}
           <div style={{maxWidth:240}}>
@@ -1651,8 +1839,9 @@ function CopyLoginButton({email, password, vorname}){
 function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]}){
   const[f,setF]=useState({
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
-    email:initial?.email||"",role:initial?.role||"trainer",
-    color:initial?.color||PRESET_COLORS[0],position:initial?.position||"Trainer",
+    email:initial?.email||"",role:initial?.role||"mitarbeiter",
+    geschlecht:initial?.geschlecht||"d",
+    color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
     geburtsdatum:initial?.geburtsdatum||"",
     einstellungsdatum:initial?.einstellungsdatum||"",
     urlaubstage:String(initial?.urlaubstage??26),
@@ -1739,7 +1928,27 @@ Thomas Keilig`;
               <div><label style={S.lbl}>Vorname *</label><input style={S.inp} value={f.vorname} onChange={e=>setF(p=>({...p,vorname:e.target.value}))}/></div>
               <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
             </div>
-            <div><label style={S.lbl}>Position</label><input style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))}/></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><label style={S.lbl}>Geschlecht</label>
+                <select style={S.inp} value={f.geschlecht} onChange={e=>setF(p=>({...p,geschlecht:e.target.value}))}>
+                  {GESCHLECHTER.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              <div><label style={S.lbl}>Position</label>
+                <select style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))} disabled={!isAdmin}>
+                  {POSITIONEN.map(pos=><option key={pos.key} value={pos.key}>{posLabel(pos.key,f.geschlecht)}</option>)}
+                  {!POS_MAP[f.position]&&<option value={f.position}>{f.position} (alt)</option>}
+                </select>
+              </div>
+            </div>
+            <div style={{fontSize:12,color:"#5a6b4a",background:"#f8faf0",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
+              {(()=>{
+                const sc=posInfo(f.position).scope,br=posInfo(f.position).bereich;
+                if(sc==="alle")return "🔑 Darf alle Mitarbeiter und Leitungen sehen und bearbeiten.";
+                if(sc==="bereich")return "🔑 Darf alle Mitarbeiter im Bereich "+(BEREICH_NAME[br]||"–")+" bearbeiten, Urlaub eintragen, genehmigen und ablehnen.";
+                return "👤 Sieht und bearbeitet nur den eigenen Urlaub und die eigenen Stammdaten.";
+              })()}
+            </div>
             <div style={{maxWidth:240}}><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
             {/* Einstellungsdatum: nur für Admin sichtbar */}
             {isAdmin&&(
@@ -1779,11 +1988,13 @@ Thomas Keilig`;
                 onFocus={e=>e.target.select()}
                 onChange={e=>setF(p=>({...p,resturlaub:e.target.value.replace(/[^0-9]/g,"")}))}/>
             </div>
-            {isAdmin&&<div><label style={S.lbl}>Rolle</label>
+            {isAdmin&&<div><label style={S.lbl}>Berechtigung</label>
               <select style={S.inp} value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
-                <option value="trainer">Trainer</option>
-                <option value="admin">Admin</option>
+                {ROLLEN.map(([k,l])=><option key={k} value={k}>{l}</option>)}
               </select>
+              <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>
+                {f.role==="admin"?"Administrator: alle Berechtigungen im gesamten Urlaubsplaner.":"Mitarbeiter: Rechte richten sich nach der Position."}
+              </div>
             </div>}
           </div>
 
@@ -1973,7 +2184,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           <div style={{marginBottom:12}}><label style={S.lbl}>Bis</label><input style={S.inp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/></div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
           <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between"}}>
-            <span>Arbeitstage (Mo–Fr): <strong style={{color:"#2d3a2e"}}>{wd}</strong></span>
+            <span>Arbeitstage (Mo–Fr): <strong style={{color:"#2d3a2e"}}>{fmtT(wd)}</strong></span>
           </div>
           {/* Konflikt-Warnung */}
           {conflicts.length>0&&(
@@ -2145,9 +2356,9 @@ function PrintList({year,users,stateName,onClose}){
       <div style={{fontSize:16,fontWeight:700,textAlign:"center",marginBottom:12}}>Urlaubsliste {year} · {stateName}</div>
       {users.map(u=>{const entries=u.entries||[];const urlU=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");return(
         <div key={u.id} style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:12,padding:"5px 8px",background:"#f1f5f9",borderLeft:`3px solid ${u.color||"#2563EB"}`,marginBottom:4,display:"flex",justifyContent:"space-between"}}><span>{u.vorname} {u.nachname}</span><span style={{fontWeight:400,fontSize:10,color:"#555"}}>Urlaub: {urlU}/{u.urlaubstage||30} · ÜS: {ueU}/{u.ueberstunden||0}</span></div>
+          <div style={{fontWeight:700,fontSize:12,padding:"5px 8px",background:"#f1f5f9",borderLeft:`3px solid ${u.color||"#2563EB"}`,marginBottom:4,display:"flex",justifyContent:"space-between"}}><span>{u.vorname} {u.nachname}</span><span style={{fontWeight:400,fontSize:10,color:"#555"}}>Urlaub: {fmtT(urlU)}/{u.urlaubstage||30} · ÜS: {fmtT(ueU)}/{u.ueberstunden||0}</span></div>
           <table style={ps.t}><thead><tr>{["Typ","Von","Bis","Tage","Status"].map(h=><th key={h} style={ps.th}>{h}</th>)}</tr></thead>
-            <tbody>{[...entries].sort((a,b)=>a.von.localeCompare(b.von)).map(e=><tr key={e.id}><td style={ps.td}>{TL[e.type]||e.type}</td><td style={ps.td}>{fmtDE(e.von)}</td><td style={ps.td}>{fmtDE(e.bis)}</td><td style={ps.td}>{countWD(e.von,e.bis)}</td><td style={ps.td}>{e.status}</td></tr>)}</tbody>
+            <tbody>{[...entries].sort((a,b)=>a.von.localeCompare(b.von)).map(e=><tr key={e.id}><td style={ps.td}>{TL[e.type]||e.type}</td><td style={ps.td}>{fmtDE(e.von)}</td><td style={ps.td}>{fmtDE(e.bis)}</td><td style={ps.td}>{fmtT(countWD(e.von,e.bis))}</td><td style={ps.td}>{e.status}</td></tr>)}</tbody>
           </table>
         </div>
       );})}
@@ -2187,7 +2398,7 @@ function ChangeRequestModal({entry,year,onSave,onClose}){
             <input style={S.inp} value={grund} onChange={e=>setGrund(e.target.value)} placeholder="z.B. Familienurlaub verschoben"/>
           </div>
           <div style={{fontSize:13,color:"#5a6b4a",borderTop:"1px solid #edf5d8",paddingTop:8}}>
-            Neuer Zeitraum: <strong style={{color:"#2d3a2e"}}>{wd} Arbeitstage</strong>
+            Neuer Zeitraum: <strong style={{color:"#2d3a2e"}}>{fmtT(wd)} Arbeitstage</strong>
           </div>
           <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Der Änderungsantrag wird dem Administrator zur Genehmigung vorgelegt.</div>
         </div>

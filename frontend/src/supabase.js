@@ -73,7 +73,7 @@ function friendlyUserError(msg) {
   return msg || "Unbekannter Fehler.";
 }
 
-export async function createUser({ email, password, vorname, nachname, role, position, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum }) {
+export async function createUser({ email, password, vorname, nachname, role, position, geschlecht, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum }) {
   const mail = (email || "").trim().toLowerCase();
   if (!mail.includes("@")) throw new Error("Bitte eine gültige E-Mail-Adresse eingeben.");
   if (!password || password.length < 8) throw new Error("Das Passwort muss mindestens 8 Zeichen lang sein.");
@@ -91,14 +91,15 @@ export async function createUser({ email, password, vorname, nachname, role, pos
     p_password: password,
     p_vorname: vorname || "",
     p_nachname: nachname || "",
-    p_role: role || "trainer",
-    p_position: position || "Trainer",
+    p_role: role || "mitarbeiter",
+    p_position: position || "trainer",
     p_color: color || "#5a8a1f",
     p_urlaubstage: urlaubstage ?? 26,
     p_ueberstunden: ueberstunden ?? 0,
     p_resturlaub: resturlaub ?? 0,
     p_einstellungsdatum: einstellungsdatum || null,
     p_geburtsdatum: geburtsdatum || null,
+    p_geschlecht: geschlecht || 'd',
   });
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
