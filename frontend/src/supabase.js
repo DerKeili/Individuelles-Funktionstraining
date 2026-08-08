@@ -3,11 +3,21 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://meufjnmmucsvmtlnoazg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldWZqbm1tdWNzdm10bG5vYXpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMjQ1NDQsImV4cCI6MjA5OTYwMDU0NH0.4ginPuHoWlXHXDb_RJOzQT2RiMWKK9k5l0y2uoj9FIY";
 
+const STORAGE_KEY = "sb-urlaubsplaner-auth";
+
+// WICHTIG: Supabase sichert Auth-Zugriffe standardmäßig über die Web-Locks-API ab.
+// Auf iOS/iPadOS bleibt so eine Sperre nach dem Einfrieren der App hängen — dann
+// antwortet getSession() nie mehr und die App steht ewig auf "Verbinde mit Datenbank".
+// Wir ersetzen die Sperre durch einen einfachen Durchlauf.
+const ohneSperre = async (_name, _timeout, fn) => await fn();
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: STORAGE_KEY,
+    lock: ohneSperre,
     // Automatisch Token erneuern bei Timing-Problemen
     flowType: "implicit",
   },
@@ -33,9 +43,33 @@ export async function signIn(email, password) {
   return data;
 }
 export async function signOut() { await supabase.auth.signOut(); }
+
+// Notausstieg: löscht die Sitzung lokal, ohne auf den Server zu warten
+export function signOutHart() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k === STORAGE_KEY || k.startsWith("sb-"))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* Speicher nicht verfügbar — dann hilft der Neustart allein */ }
+}
+
+// Sitzung direkt aus dem Speicher lesen (ohne Netzwerk, ohne Sperren)
+function sessionAusSpeicher() {
+  try {
+    const roh = localStorage.getItem(STORAGE_KEY);
+    if (!roh) return null;
+    const s = JSON.parse(roh);
+    return s?.access_token ? s : (s?.currentSession || null);
+  } catch (e) { return null; }
+}
+
 export async function getSession() {
-  const { data } = await supabase.auth.getSession();
-  return data.session;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) return data.session;
+  } catch (e) { /* Rückfall unten */ }
+  // Rückfall: gespeicherte Sitzung verwenden, damit die App startbar bleibt
+  return sessionAusSpeicher();
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────

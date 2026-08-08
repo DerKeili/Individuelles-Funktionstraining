@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   supabase, signIn, signOut, getSession,
-  getProfile, getAllProfiles, updateProfile, createUser, deleteUser,
+  getProfile, getAllProfiles, updateProfile, createUser, deleteUser, signOutHart,
   getAllEntries, getMyEntries, getConfirmedEntries,
   createEntry, updateEntry, setEntryStatus, deleteEntry, checkConflicts,
   adminResetPassword, requestPasswordReset,
@@ -100,13 +100,80 @@ const FT_CACHE={};
 // Ferien werden von den Kultusministerien festgelegt und lassen sich nicht berechnen.
 function getSD(state,year){
   if(!state)return{feiertage:{},ferien:[]};
-  const db=KALENDER_DB[state];const y=String(year);
+  const y=String(year);
+  // 1. Amtliche Daten aus der API (falls geladen)
+  if(API_DB[state+y])return API_DB[state+y];
+  // 2. Fest hinterlegte Daten
+  const db=KALENDER_DB[state];
   if(db&&db[y])return db[y];
+  // 3. Berechnete Feiertage
   const key=state+y;
   if(!FT_CACHE[key])FT_CACHE[key]={feiertage:berechneFeiertage(state,Number(year)),ferien:[]};
   return FT_CACHE[key];
 }
-const ferienVorhanden=(state,year)=>!!(KALENDER_DB[state]&&KALENDER_DB[state][String(year)]);
+// ─── Amtliche Daten von der OpenHolidays-API ────────────────────────────────
+// Kostenfreies Open-Data-Projekt mit Feiertagen UND Schulferien aller Bundesländer.
+// Die Daten werden im Browser zwischengespeichert, damit die App auch offline läuft.
+const API_DB={};                       // "SN2028" -> {feiertage,ferien}
+const API_BASIS="https://openholidaysapi.org";
+const API_CACHE_TAGE=14;
+const apiKey=(st,y)=>"up_kal_"+st+"_"+y;
+
+function ausCache(st,y){
+  try{
+    const roh=localStorage.getItem(apiKey(st,y));
+    if(!roh)return null;
+    const c=JSON.parse(roh);
+    if(Date.now()-c.zeit>API_CACHE_TAGE*24*60*60*1000)return null;
+    return c.daten;
+  }catch(e){return null;}
+}
+function inCache(st,y,daten){
+  try{localStorage.setItem(apiKey(st,y),JSON.stringify({zeit:Date.now(),daten}));}catch(e){}
+}
+const apiName=n=>{
+  if(!Array.isArray(n))return "";
+  return (n.find(x=>x.language==="DE")||n[0]||{}).text||"";
+};
+async function holeVonApi(pfad,st,y){
+  const q="countryIsoCode=DE&subdivisionCode=DE-"+st+"&languageIsoCode=DE"
+         +"&validFrom="+y+"-01-01&validTo="+y+"-12-31";
+  const r=await fetch(API_BASIS+"/"+pfad+"?"+q,{headers:{accept:"application/json"}});
+  if(!r.ok)throw new Error("API "+r.status);
+  return await r.json();
+}
+// Lädt Feiertage und Ferien; liefert true, wenn neue Daten vorliegen
+async function ladeKalenderJahr(st,y){
+  if(!st)return false;
+  const k=st+y;
+  if(API_DB[k])return false;
+  const c=ausCache(st,y);
+  if(c){API_DB[k]=c;return true;}
+  try{
+    const[ft,fr]=await Promise.all([holeVonApi("PublicHolidays",st,y),holeVonApi("SchoolHolidays",st,y)]);
+    const feiertage={};
+    (ft||[]).forEach(e=>{
+      const name=apiName(e.name);
+      let cur=e.startDate;
+      while(cur&&cur<=(e.endDate||e.startDate)){
+        feiertage[cur]=name;
+        const[a1,b1,c1]=cur.split("-").map(Number);
+        cur=isoOf(new Date(a1,b1-1,c1+1));
+      }
+    });
+    const ferien=(fr||[]).map(e=>[e.startDate,e.endDate||e.startDate,apiName(e.name)]);
+    const daten={feiertage,ferien};
+    API_DB[k]=daten;inCache(st,y,daten);
+    return true;
+  }catch(e){
+    return false;   // Kein Netz oder API nicht erreichbar → hinterlegte Daten nutzen
+  }
+}
+const ferienVorhanden=(state,year)=>{
+  const k=state+year;
+  if(API_DB[k]&&API_DB[k].ferien&&API_DB[k].ferien.length)return true;
+  return !!(KALENDER_DB[state]&&KALENDER_DB[state][String(year)]);
+};
 const isFT=(iso,s,y)=>getSD(s,y).feiertage[iso]||null;
 const isFer=(iso,s,y)=>{for(const[v,b,n]of getSD(s,y).ferien){if(iso>=v&&iso<=b)return n;}return null;};
 const dimM=(y,m)=>new Date(y,m+1,0).getDate();
@@ -315,6 +382,7 @@ export default function App(){
       }
       setSession(sess);
       await mitWiederholung(()=>loadAll(sess.user.id),2,12000);
+      setLoading(false);
     }catch(e){
       // Nur melden, wenn die App wirklich sichtbar ist — sonst still im Hintergrund lassen
       if(document.visibilityState==="visible")setDbError(true);
@@ -380,14 +448,37 @@ export default function App(){
     document.addEventListener("visibilitychange",beiRueckkehr);
     window.addEventListener("pageshow",beiRueckkehr);
     window.addEventListener("online",beiRueckkehr);
-    window.addEventListener("focus",beiRueckkehr);
     return()=>{
       document.removeEventListener("visibilitychange",beiRueckkehr);
       window.removeEventListener("pageshow",beiRueckkehr);
       window.removeEventListener("online",beiRueckkehr);
-      window.removeEventListener("focus",beiRueckkehr);
     };
   },[]);
+
+  // Amtliche Feiertage/Ferien laden, sobald Jahr oder Bundesland wechseln
+  const [kalTick,setKalTick]=useState(0);
+  useEffect(()=>{
+    if(!bundesland)return;
+    let aktiv=true;
+    (async()=>{
+      let neu=false;
+      for(const y of [year-1,year,year+1]){
+        const ok=await ladeKalenderJahr(bundesland,y);
+        neu=neu||ok;
+      }
+      if(aktiv&&neu)setKalTick(t=>t+1);
+    })();
+    return()=>{aktiv=false;};
+  },[bundesland,year]);
+
+  // Wachhund: bleibt der Ladebildschirm länger als 20 Sekunden stehen, Fehlermeldung zeigen
+  useEffect(()=>{
+    if(!loading)return;
+    const t=setTimeout(()=>{
+      if(ladeRef.current){setLoading(false);setDbError(true);bootRef.current=false;}
+    },20000);
+    return()=>clearTimeout(t);
+  },[loading]);
 
   // Tageswechsel auch bei durchgehend geöffneter App erkennen (Prüfung jede Minute)
   useEffect(()=>{
@@ -687,12 +778,12 @@ export default function App(){
       <div style={{fontSize:40}}>📅</div>
       <div style={{color:"#64748b",fontSize:14}}>Verbinde mit Datenbank…</div>
       {/* Notausgang: falls die Verbindung wider Erwarten doch hängt */}
-      <button onClick={()=>{bootRef.current=false;boot();}}
+      <button onClick={()=>{bootRef.current=false;setLoading(false);setDbError(false);setTimeout(()=>boot(),50);}}
         style={{marginTop:8,background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:13,cursor:"pointer"}}>
         Neu verbinden
       </button>
-      <button onClick={async()=>{try{await signOut();}catch(e){}window.location.reload();}}
-        style={{background:"none",border:"none",color:"#475569",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>
+      <button onClick={()=>{signOutHart();try{signOut();}catch(e){}window.location.reload();}}
+        style={{background:"none",border:"none",color:"#475569",fontSize:12,cursor:"pointer",textDecoration:"underline",padding:8}}>
         Abmelden und neu starten
       </button>
     </div>
@@ -885,12 +976,12 @@ export default function App(){
 
       {/* MAIN */}
       <main style={S.main} onClick={()=>setTooltip(null)}>
-        {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
+        {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
-        {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
+        {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
       </main>
 
@@ -1751,8 +1842,8 @@ function FerView({year,state,stateName}){
         <div><h2 style={S.pgT}>Ferien & Feiertage {year}</h2><div style={{fontSize:13,color:"#64748b"}}>📍 {stateName}</div>
           {!ferienVorhanden(state,year)&&(
             <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",border:"1px solid #fcd9b0",borderRadius:6,padding:"6px 10px",marginTop:8,maxWidth:520}}>
-              Feiertage werden für {year} automatisch berechnet. Die Schulferien legen die Kultusministerien fest —
-              für {year} liegen sie noch nicht hinterlegt vor und erscheinen erst nach einem Update.
+              Für {year} liegen noch keine Ferientermine vor. Die Feiertage sind berechnet.
+              Sobald das Kultusministerium die Ferien veröffentlicht, werden sie beim nächsten Aufruf mit Internetverbindung automatisch geladen.
             </div>
           )}
         </div>
