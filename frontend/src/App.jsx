@@ -736,19 +736,20 @@ export default function App(){
   }
 
   // Kalender: bestätigte + eigene pending
+  // Gehört diese Person zum aktuell gewählten Bereichsfilter?
+  function imKalenderFilter(u){
+    if(!u)return false;
+    if(!darfBereichFiltern||kalBereich==="alle")return true;
+    if(kalBereich==="leitung")return posInfo(u.position).scope==="alle";
+    return posInfo(u.position).bereich===kalBereich;
+  }
   function calEntries(){
     const sichtbar=entries.filter(e=>{
       if(e.user_id===session?.user.id)return true;              // eigene immer
       if(e.status!=="confirmed")return false;                    // fremde nur bestätigt
       return canManage(profile,profiles.find(p=>p.id===e.user_id)); // und nur wenn erlaubt
     });
-    if(!darfBereichFiltern||kalBereich==="alle")return sichtbar;
-    return sichtbar.filter(e=>{
-      if(e.user_id===session?.user.id)return true;
-      const pos=profiles.find(p=>p.id===e.user_id)?.position;
-      if(kalBereich==="leitung")return posInfo(pos).scope==="alle";
-      return posInfo(pos).bereich===kalBereich;
-    });
+    return sichtbar.filter(e=>imKalenderFilter(profiles.find(p=>p.id===e.user_id)));
   }
   // Profiles mit ihren Einträgen zusammenführen
   function profilesWithEntries(){
@@ -908,7 +909,9 @@ export default function App(){
         <div style={S.legend}>
           {/* Zeile 1: Mitarbeiterfarben */}
           <div style={S.legRow}>
-            {pwu.filter(u=>canManage(profile,u)&&u.entries.some(e=>e.status==="confirmed")).map(u=>(
+            {pwu.filter(u=>canManage(profile,u)&&imKalenderFilter(u)
+                &&u.entries.some(e=>e.status==="confirmed"
+                  &&(e.von?.startsWith(String(year))||e.bis?.startsWith(String(year))))).map(u=>(
               <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
             ))}
           </div>
