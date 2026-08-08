@@ -48,7 +48,65 @@ const DAYS_SHORT=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const PRESET_COLORS=["#2563EB","#DC2626","#059669","#D97706","#7C3AED","#DB2777","#0891B2","#65A30D","#EA580C","#0F766E"];
 
 // ─── Kalender-Helpers ─────────────────────────────────────────────────────────
-function getSD(state,year){if(!state)return{feiertage:{},ferien:[]};const db=KALENDER_DB[state];if(!db)return{feiertage:{},ferien:[]};const y=String(year);if(db[y])return db[y];const yrs=Object.keys(db).map(Number).sort();const b=yrs.reduce((a,x)=>Math.abs(x-year)<Math.abs(a-year)?x:a);return db[String(b)];}
+// Ostersonntag nach der Gaußschen Osterformel — Grundlage aller beweglichen Feiertage
+function osterSonntag(y){
+  const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+        f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,
+        i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+        mo=Math.floor((h+l-7*m+114)/31),tg=((h+l-7*m+114)%31)+1;
+  return new Date(y,mo-1,tg);
+}
+const plusTage=(dt,n)=>{const d=new Date(dt);d.setDate(d.getDate()+n);return d;};
+// Bundeslandspezifische Feiertage
+const FT_REGIONAL={
+  dreikoenige:["BW","BY","ST"],
+  fronleichnam:["BW","BY","HE","NW","RP","SL","SN"],
+  mariaeHimmelfahrt:["BY","SL"],
+  reformation:["BB","HB","HH","MV","NI","SN","ST","SH","TH"],
+  allerheiligen:["BW","BY","NW","RP","SL"],
+  bussUndBettag:["SN"],
+  frauentag:["BE","MV"],
+  weltkindertag:["TH"],
+};
+// Buß- und Bettag: Mittwoch vor dem 23. November
+function bussBettag(y){const d=new Date(y,10,23);d.setDate(23-((d.getDay()+4)%7||7));return d;}
+function berechneFeiertage(state,y){
+  const ft={},setze=(dt,name)=>{ft[isoOf(dt)]=name;};
+  const o=osterSonntag(y);
+  setze(new Date(y,0,1),"Neujahr");
+  setze(plusTage(o,-2),"Karfreitag");
+  setze(o,"Ostersonntag");
+  setze(plusTage(o,1),"Ostermontag");
+  setze(new Date(y,4,1),"Tag der Arbeit");
+  setze(plusTage(o,39),"Christi Himmelfahrt");
+  setze(plusTage(o,49),"Pfingstsonntag");
+  setze(plusTage(o,50),"Pfingstmontag");
+  setze(new Date(y,9,3),"Tag der Deutschen Einheit");
+  setze(new Date(y,11,25),"1. Weihnachtstag");
+  setze(new Date(y,11,26),"2. Weihnachtstag");
+  const hat=k=>FT_REGIONAL[k].includes(state);
+  if(hat("dreikoenige"))       setze(new Date(y,0,6),"Heilige Drei Könige");
+  if(hat("frauentag"))         setze(new Date(y,2,8),"Internationaler Frauentag");
+  if(hat("fronleichnam"))      setze(plusTage(o,60),"Fronleichnam");
+  if(hat("mariaeHimmelfahrt")) setze(new Date(y,7,15),"Mariä Himmelfahrt");
+  if(hat("weltkindertag"))     setze(new Date(y,8,20),"Weltkindertag");
+  if(hat("reformation"))       setze(new Date(y,9,31),"Reformationstag");
+  if(hat("allerheiligen"))     setze(new Date(y,10,1),"Allerheiligen");
+  if(hat("bussUndBettag"))     setze(bussBettag(y),"Buß- und Bettag");
+  return ft;
+}
+const FT_CACHE={};
+// Hinterlegte Jahre nutzen; für alle anderen Jahre die Feiertage berechnen.
+// Ferien werden von den Kultusministerien festgelegt und lassen sich nicht berechnen.
+function getSD(state,year){
+  if(!state)return{feiertage:{},ferien:[]};
+  const db=KALENDER_DB[state];const y=String(year);
+  if(db&&db[y])return db[y];
+  const key=state+y;
+  if(!FT_CACHE[key])FT_CACHE[key]={feiertage:berechneFeiertage(state,Number(year)),ferien:[]};
+  return FT_CACHE[key];
+}
+const ferienVorhanden=(state,year)=>!!(KALENDER_DB[state]&&KALENDER_DB[state][String(year)]);
 const isFT=(iso,s,y)=>getSD(s,y).feiertage[iso]||null;
 const isFer=(iso,s,y)=>{for(const[v,b,n]of getSD(s,y).ferien){if(iso>=v&&iso<=b)return n;}return null;};
 const dimM=(y,m)=>new Date(y,m+1,0).getDate();
@@ -101,9 +159,10 @@ const POSITIONEN=[
   {key:"logopaede",        scope:"selbst", bereich:"logo",   l:{m:"Logopäde",w:"Logopädin",d:"Logopäde/Logopädin"}},
   {key:"podologe",         scope:"selbst", bereich:"podo",   l:{m:"Podologe",w:"Podologin",d:"Podologe/Podologin"}},
   {key:"trainer",          scope:"selbst", bereich:"trainer",l:{m:"Trainer",w:"Trainerin",d:"Trainer/in"}},
+  {key:"rezeption",        scope:"selbst", bereich:"rezeption",l:{m:"Rezeption",w:"Rezeption",d:"Rezeption"}},
 ];
 const POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
-const BEREICH_NAME={physio:"Physiotherapie",ergo:"Ergotherapie",trainer:"Trainer",logo:"Logopädie",podo:"Podologie"};
+const BEREICH_NAME={physio:"Physiotherapie",ergo:"Ergotherapie",trainer:"Trainer",logo:"Logopädie",podo:"Podologie",rezeption:"Rezeption"};
 function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",bereich:null,l:null};}
 // Anzeigename je nach Geschlecht; unbekannte (alte) Werte werden unverändert gezeigt
 function posLabel(key,geschlecht){
@@ -121,6 +180,12 @@ function canManage(actor,target){
   if(a.scope==="bereich")return posInfo(target.position).bereich===a.bereich;
   return false;
 }
+// Darf "actor" über den Antrag von "target" entscheiden? Der eigene Antrag zählt nicht.
+function darfEntscheiden(actor,target){
+  if(!actor||!target)return false;
+  if(actor.id===target.id)return actor.role==="admin"||posInfo(actor.position).scope==="alle";
+  return canManage(actor,target);
+}
 // Hat jemand überhaupt Leitungsrechte (über sich selbst hinaus)?
 function istLeitung(p){
   if(!p)return false;
@@ -128,6 +193,33 @@ function istLeitung(p){
   const s=posInfo(p.position).scope;
   return s==="alle"||s==="bereich";
 }
+// ─── Arbeitszeit ─────────────────────────────────────────────────────────────
+const WOCHENTAGE_AUSWAHL=[1,2,3,4,5,6];
+const stdProTag=u=>{
+  const w=Number(u?.wochenstunden)||0,t=Number(u?.arbeitstage_woche)||0;
+  return (w>0&&t>0)?Math.round((w/t)*100)/100:0;
+};
+const fmtStd=n=>{const v=Number(n)||0;return (Number.isInteger(v)?String(v):v.toFixed(2).replace(/0$/,"")).replace(".",",");};
+// Urlaubstage in Stunden umrechnen (für Überstundenkonto)
+const tageInStd=(tage,u)=>Math.round((Number(tage)||0)*stdProTag(u)*100)/100;
+const naechsterTag=iso=>{const[y,m,d]=iso.split("-").map(Number);const dt=new Date(y,m-1,d+1);return isoOf(dt);};
+// Datum, an dem "budget" Urlaubstage innerhalb von..bis aufgebraucht sind (oder null)
+function splitDatum(von,bis,budget){
+  if(budget<=0)return null;
+  const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);
+  let cur=new Date(y1,m1-1,d1);const ende=new Date(y2,m2-1,d2);
+  let verbraucht=0,letzter=null;
+  while(cur<=ende){
+    const f=tagesFaktor(cur);
+    if(f>0){
+      if(verbraucht+f>budget)break;
+      verbraucht+=f;letzter=isoOf(cur);
+    }
+    cur.setDate(cur.getDate()+1);
+  }
+  return letzter;
+}
+
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
@@ -187,11 +279,19 @@ export default function App(){
         || anmeldung.getDate()!==heute.getDate();                       // anderer Kalendertag
   }
 
+  // Harte Zeitgrenze: ein hängender Netzwerkaufruf blockiert sonst dauerhaft
+  // (genau das passiert beim Wechsel WLAN → Mobilfunk: die alte Verbindung antwortet nie mehr)
+  function mitZeitlimit(promise,ms=8000){
+    return Promise.race([
+      promise,
+      new Promise((_,ab)=>setTimeout(()=>ab(new Error("Zeitüberschreitung")),ms)),
+    ]);
+  }
   // Netzwerkaufruf mit mehreren Versuchen — fängt schlafende Verbindungen nach App-Wechsel ab
-  async function mitWiederholung(fn,versuche=3){
+  async function mitWiederholung(fn,versuche=3,limit=8000){
     let letzterFehler;
     for(let i=0;i<versuche;i++){
-      try{return await fn();}
+      try{return await mitZeitlimit(Promise.resolve().then(fn),limit);}
       catch(e){letzterFehler=e;if(i<versuche-1)await new Promise(r=>setTimeout(r,700*(i+1)));}
     }
     throw letzterFehler;
@@ -214,7 +314,7 @@ export default function App(){
         return;
       }
       setSession(sess);
-      await loadAll(sess.user.id);
+      await mitWiederholung(()=>loadAll(sess.user.id),2,12000);
     }catch(e){
       // Nur melden, wenn die App wirklich sichtbar ist — sonst still im Hintergrund lassen
       if(document.visibilityState==="visible")setDbError(true);
@@ -251,6 +351,8 @@ export default function App(){
   const dbErrorRef=useRef(false);
   const sessionRef=useRef(null);
   const profileRef=useRef(null);
+  const ladeRef=useRef(true);
+  useEffect(()=>{ladeRef.current=loading;},[loading]);
   useEffect(()=>{dbErrorRef.current=dbError;},[dbError]);
   useEffect(()=>{sessionRef.current=session;},[session]);
   useEffect(()=>{profileRef.current=profile;},[profile]);
@@ -261,7 +363,8 @@ export default function App(){
       // Fehleranzeige? Dann still im Hintergrund einen neuen Versuch starten
       if(dbErrorRef.current){await boot();return;}
       const sess=sessionRef.current;
-      if(!sess)return;
+      // Noch nie fertig geladen (z.B. Verbindung eingefroren) → kompletter Neustart
+      if(!sess){if(ladeRef.current)await boot();return;}
       // Neuer Tag angebrochen, während die App im Hintergrund lag → abmelden
       if(sessionAbgelaufen(sess)){
         await signOut();
@@ -565,7 +668,7 @@ export default function App(){
   }
 
   const stateName=BUNDESLAENDER.find(b=>b[0]===bundesland)?.[1]||"";
-  const pendingCount=entries.filter(e=>e.status==="pending").length;
+  const pendingCount=entries.filter(e=>e.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===e.user_id))).length;
 
   if(dbError)return(
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:24}}>
@@ -580,9 +683,18 @@ export default function App(){
     </div>
   );
   if(loading)return(
-    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:20,textAlign:"center"}}>
       <div style={{fontSize:40}}>📅</div>
       <div style={{color:"#64748b",fontSize:14}}>Verbinde mit Datenbank…</div>
+      {/* Notausgang: falls die Verbindung wider Erwarten doch hängt */}
+      <button onClick={()=>{bootRef.current=false;boot();}}
+        style={{marginTop:8,background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:13,cursor:"pointer"}}>
+        Neu verbinden
+      </button>
+      <button onClick={async()=>{try{await signOut();}catch(e){}window.location.reload();}}
+        style={{background:"none",border:"none",color:"#475569",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>
+        Abmelden und neu starten
+      </button>
     </div>
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
@@ -709,7 +821,7 @@ export default function App(){
           {/* Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
           {darfBereichFiltern&&view==="kalender"&&(
             <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",borderLeft:"1px solid #d5e8a0",paddingLeft:8,marginLeft:2}}>
-              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"]].map(([k,lbl])=>(
+              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
                 <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
                   background:kalBereich===k?"#e8f3d6":"none",cursor:"pointer",
                   border:"1px solid "+(kalBereich===k?"#7ab529":"#cbd5e1"),
@@ -776,7 +888,7 @@ export default function App(){
         {view==="kalender"&&<KalView year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isLeitung&&<EintAdmin entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
@@ -855,8 +967,22 @@ export default function App(){
         />
       )}
 
-      {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id} onSave={async d=>{await handleCreateEntry({...d,user_id:modal.data.userId});setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
+        kontingent={(()=>{
+          const u=pwu.find(x=>x.id===modal.data.userId);
+          if(!u)return null;
+          const js=String(year);
+          const ej=(u.entries||[]).filter(e=>(e.von?.startsWith(js)||e.bis?.startsWith(js))&&e.status!=="rejected");
+          return{urlaubstage:u.urlaubstage||30,resturlaub:u.resturlaub||0,ueberstunden:u.ueberstunden||0,stdProTag:stdProTag(u),
+                 genutztUrlaub:eDays(ej,"urlaub"),genutztRest:eDays(ej,"resturlaub"),genutztUeber:eDays(ej,"ueberstunden")};
+        })()}
+        onSave={async pakete=>{
+          for(const d of (Array.isArray(pakete)?pakete:[pakete])){
+            await handleCreateEntry({...d,user_id:modal.data.userId});
+          }
+          setModal(null);
+        }} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
       {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={calEntries().filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
@@ -947,22 +1073,64 @@ function ForceChangePassword({user,onDone}){
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
+// ─── Anmeldesperre nach Fehlversuchen (pro Gerät) ───────────────────────────
+const SPERR_KEY="up_login_sperre";
+const MAX_VERSUCHE=3, SPERRDAUER=30*60*1000;   // 30 Minuten
+function ladeSperre(){
+  try{return JSON.parse(localStorage.getItem(SPERR_KEY))||{n:0,bis:0};}
+  catch(e){return{n:0,bis:0};}
+}
+function speichereSperre(v){try{localStorage.setItem(SPERR_KEY,JSON.stringify(v));}catch(e){}}
+function loescheSperre(){try{localStorage.removeItem(SPERR_KEY);}catch(e){}}
+
 function LoginScreen({onLogin}){
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
   const [showPw,setShowPw]=useState(false);
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState(false);
+  const [sperre,setSperre]=useState(ladeSperre());
+  const [jetzt,setJetzt]=useState(Date.now());
+  const gesperrt=sperre.bis>jetzt;
+  const restMin=Math.max(1,Math.ceil((sperre.bis-jetzt)/60000));
+  useEffect(()=>{const t=setInterval(()=>setJetzt(Date.now()),1000);return()=>clearInterval(t);},[]);
   const [forgotMode,setForgotMode]=useState(false);
   const [forgotEmail,setForgotEmail]=useState("");
   const [forgotSent,setForgotSent]=useState(false);
 
   async function submit(){
-    if(!email||!pw){setErr("Bitte E-Mail und Passwort eingeben.");return;}
+    if(gesperrt){setErr("Zu viele Fehlversuche. Bitte in "+restMin+" Minuten erneut versuchen.");return;}
+    if(!email.trim()){setErr("Bitte E-Mail-Adresse eingeben.");return;}
+    if(!email.includes("@")){setErr("Das ist keine gültige E-Mail-Adresse.");return;}
+    if(!pw){setErr("Bitte Passwort eingeben.");return;}
     setBusy(true);setErr("");
-    try{await onLogin(email,pw);}
-    catch(e){setErr(e.message);}
-    finally{setBusy(false);}
+    try{
+      await onLogin(email.trim().toLowerCase(),pw);
+      loescheSperre();setSperre({n:0,bis:0});
+    }catch(e){
+      const roh=(e.message||"").toLowerCase();
+      let text;
+      if(roh.includes("invalid login")||roh.includes("credentials"))
+        text="E-Mail-Adresse oder Passwort ist falsch.";
+      else if(roh.includes("email not confirmed"))
+        text="Dieses Konto ist noch nicht freigeschaltet. Bitte an die Praxisleitung wenden.";
+      else if(roh.includes("rate limit")||roh.includes("too many"))
+        text="Zu viele Anmeldeversuche. Bitte einige Minuten warten.";
+      else if(roh.includes("failed to fetch")||roh.includes("zeitüberschreitung")||roh.includes("network"))
+        text="Keine Verbindung zum Server. Bitte Internetverbindung prüfen.";
+      else text=e.message||"Anmeldung fehlgeschlagen.";
+
+      const n=sperre.n+1;
+      if(n>=MAX_VERSUCHE){
+        const neu={n:0,bis:Date.now()+SPERRDAUER};
+        speichereSperre(neu);setSperre(neu);
+        setErr("Dreimal falsch angemeldet. Die Eingabe ist für 30 Minuten gesperrt.");
+      }else{
+        const neu={n,bis:0};
+        speichereSperre(neu);setSperre(neu);
+        setErr(text+" Noch "+(MAX_VERSUCHE-n)+" "+((MAX_VERSUCHE-n)===1?"Versuch":"Versuche")+".");
+      }
+    }finally{setBusy(false);}
   }
 
   async function sendForgotRequest(){
@@ -976,10 +1144,10 @@ function LoginScreen({onLogin}){
   }
 
   return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#e8f5eb 0%,#f0f4f0 50%,#e0efe3 100%)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#ffffff",borderRadius:16,padding:40,width:420,maxWidth:"90vw",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#e8f5eb 0%,#f0f4f0 50%,#e0efe3 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box"}}>
+      <div style={{background:"#ffffff",borderRadius:16,padding:"32px 24px",width:420,maxWidth:"calc(100vw - 32px)",boxSizing:"border-box",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.15)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="TZ Westlausitz" style={{height:80,width:"auto",marginBottom:8}}/>
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="TZ Westlausitz" style={{maxWidth:"100%",width:"auto",height:"auto",maxHeight:80,display:"block",margin:"0 auto 8px"}}/>
           <div style={{fontSize:13,color:"#5a6b4a",marginTop:8,fontWeight:600,letterSpacing:"0.02em"}}>Urlaubsplaner · Individuelles Funktionstraining</div>
         </div>
 
@@ -991,7 +1159,7 @@ function LoginScreen({onLogin}){
               <button onClick={()=>{setForgotMode(true);setForgotEmail(email);setErr("");}} style={{background:"none",border:"none",color:"#64748b",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Passwort vergessen?</button>
             </div>
             {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6,border:"1px solid rgba(248,113,113,0.2)"}}>{err}</div>}
-            <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:busy?0.6:1}} onClick={submit} disabled={busy}>{busy?"Anmelden…":"Anmelden"}</button>
+            <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:(busy||gesperrt)?0.5:1,cursor:gesperrt?"not-allowed":"pointer"}} onClick={submit} disabled={busy||gesperrt}>{gesperrt?("Gesperrt – noch "+restMin+" Min."):(busy?"Anmelden…":"Anmelden")}</button>
           </>
         ):(
           <>
@@ -1291,7 +1459,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
 }
 
 // ─── Einträge Admin ───────────────────────────────────────────────────────────
-function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
+function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
   const rich=entries
@@ -1353,8 +1521,10 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit}){
                 <td style={S.td}>
                   <div style={{display:"flex",gap:4}}>
                     {showAct&&e.status==="pending"&&<>
+                      {darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id))?(<>
                       <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",fontSize:14}} onClick={()=>onStatus(e.id,"confirmed")} title="Bestätigen">✓</button>
                       <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14}} onClick={()=>onStatus(e.id,"rejected")} title="Ablehnen">✗</button>
+                      </>):(<span style={{fontSize:11,color:"#8aaa5f"}} title="Über den eigenen Antrag entscheidet die Praxis- oder Geschäftsleitung.">wartet auf Leitung</span>)}
                     </>}
                     <button style={S.icnBtn} onClick={()=>onEdit(e.user_id,e)}>✏️</button>
                     <button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>{
@@ -1486,7 +1656,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
         </div>
       </div>
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
-        {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${fmtT(ueU)}/${user.ueberstunden}`,false]]:[])].map(([ic,lb,vl,warn])=>(
+        {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${fmtT(ueU)}/${user.ueberstunden}`,false]]:[]),["⏱️","Std./Tag",fmtStd(stdProTag(user)),false]].map(([ic,lb,vl,warn])=>(
           <div key={lb} style={{background:"#fff",borderRadius:10,padding:"12px 16px",border:`1.5px solid ${warn?"#fca5a5":"#d4e6d8"}`,minWidth:90,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
             <div style={{fontSize:20,fontWeight:800,color:warn?"#dc2626":"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{vl}</div>
@@ -1578,7 +1748,14 @@ function FerView({year,state,stateName}){
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div><h2 style={S.pgT}>Ferien & Feiertage {year}</h2><div style={{fontSize:13,color:"#64748b"}}>📍 {stateName}</div></div>
+        <div><h2 style={S.pgT}>Ferien & Feiertage {year}</h2><div style={{fontSize:13,color:"#64748b"}}>📍 {stateName}</div>
+          {!ferienVorhanden(state,year)&&(
+            <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",border:"1px solid #fcd9b0",borderRadius:6,padding:"6px 10px",marginTop:8,maxWidth:520}}>
+              Feiertage werden für {year} automatisch berechnet. Die Schulferien legen die Kultusministerien fest —
+              für {year} liegen sie noch nicht hinterlegt vor und erscheinen erst nach einem Update.
+            </div>
+          )}
+        </div>
         <div style={{display:"flex",gap:4,background:"#1e293b",borderRadius:8,padding:4}}>
           {[["ferien","🌸 Schulferien"],["feiertage","🎉 Feiertage"],["beides","📅 Alle"]].map(([id,lbl])=>(
             <button key={id} style={{...S.tabTgl,...(tab===id?S.tabTglAct:{})}} onClick={()=>setTab(id)}>{lbl}</button>
@@ -1730,6 +1907,11 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
             <input style={{...S.inp,background:"#f1f5f0",color:"#5a6b4a"}} value={posLabel(user?.position,user?.geschlecht)} readOnly/>
             <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Die Position legt die Berechtigungen fest und wird von der Leitung vergeben.</div>
           </div>
+          <div><label style={S.lbl}>Arbeitszeit</label>
+            <input style={{...S.inp,background:"#f1f5f0",color:"#5a6b4a"}} readOnly
+              value={fmtStd(user?.wochenstunden||0)+" Std./Woche an "+(user?.arbeitstage_woche||5)+" Tagen  ·  "+fmtStd(stdProTag(user))+" Std./Tag"}/>
+            <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Änderungen an der Arbeitszeit nimmt die Leitung vor.</div>
+          </div>
           {/* Zeile 3: Geburtsdatum alleine - iOS date braucht volle Breite */}
           <div style={{maxWidth:240}}>
             <label style={S.lbl}>Geburtsdatum</label>
@@ -1841,6 +2023,8 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
     geschlecht:initial?.geschlecht||"d",
+    wochenstunden:initial?.wochenstunden??40,
+    arbeitstage_woche:initial?.arbeitstage_woche??5,
     color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
     geburtsdatum:initial?.geburtsdatum||"",
     einstellungsdatum:initial?.einstellungsdatum||"",
@@ -1868,6 +2052,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   const[pwErr,setPwErr]=useState("");
   const[resetSuccess,setResetSuccess]=useState(null);
   const[saveErr,setSaveErr]=useState("");
+  const[start]=useState(()=>JSON.stringify({...(initial||{}),...{}}));
   const[busy,setBusy]=useState(false);
 
   // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
@@ -1881,10 +2066,24 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
     try{
-      await onSave({...f,email:f.email.trim().toLowerCase(),urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
+      await onSave({...f,email:f.email.trim().toLowerCase(),wochenstunden:parseFloat(f.wochenstunden)||0,arbeitstage_woche:parseInt(f.arbeitstage_woche)||5,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
     }catch(e){
       setSaveErr(e.message||"Speichern fehlgeschlagen.");
     }finally{setBusy(false);}
+  }
+
+  // Wurde etwas verändert? Vergleich gegen den Ausgangszustand
+  function istGeaendert(){
+    if(!initial)return Object.values(f).some(v=>v!==""&&v!==null&&v!==undefined);
+    return Object.keys(f).some(k=>{
+      const alt=initial[k]??"",neu=f[k]??"";
+      return String(alt)!==String(neu);
+    })||!!newUserPw;
+  }
+  async function schliessen(){
+    if(!istGeaendert()){onClose();return;}
+    const w=window.confirm("Es gibt ungespeicherte Änderungen.\n\nOK = speichern\nAbbrechen = verwerfen");
+    if(w){await save();}else{onClose();}
   }
 
   async function saveAdminPwReset(){
@@ -1918,7 +2117,7 @@ Thomas Keilig`;
   return(
     <div style={S.overlay}>
       <div style={{...S.modal,maxHeight:"92vh",overflowY:"auto",width:520}}>
-        <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
+        <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={schliessen}>✕</button></div>
         <div style={S.mBd}>
 
           {/* ── Stammdaten ── */}
@@ -1940,6 +2139,21 @@ Thomas Keilig`;
                   {!POS_MAP[f.position]&&<option value={f.position}>{f.position} (alt)</option>}
                 </select>
               </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><label style={S.lbl}>Wochenarbeitszeit (Std.)</label>
+                <input style={S.inp} type="number" min="0" max="60" step="0.5" value={f.wochenstunden}
+                  onChange={e=>setF(p=>({...p,wochenstunden:e.target.value}))}/>
+              </div>
+              <div><label style={S.lbl}>Arbeitstage pro Woche</label>
+                <select style={S.inp} value={f.arbeitstage_woche} onChange={e=>setF(p=>({...p,arbeitstage_woche:e.target.value}))}>
+                  {WOCHENTAGE_AUSWAHL.map(n=><option key={n} value={n}>{n} {n===1?"Tag":"Tage"}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
+              ⏱ Ein Urlaubstag entspricht <strong>{fmtStd(stdProTag(f))} Stunden</strong>
+              {f.ueberstunden>0&&<> · Überstundenkonto: {fmtT(f.ueberstunden)} T ≈ {fmtStd(tageInStd(f.ueberstunden,f))} Std.</>}
             </div>
             <div style={{fontSize:12,color:"#5a6b4a",background:"#f8faf0",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
               {(()=>{
@@ -2137,7 +2351,7 @@ Thomas Keilig`;
         )}
         <div style={S.mFt}>
           <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>{busy?"Speichert…":"Speichern"}</button>
-          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+          <button style={S.canBtn} onClick={schliessen}>Abbrechen</button>
         </div>
       </div>
     </div>
@@ -2145,14 +2359,30 @@ Thomas Keilig`;
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||`${year}-01-01`);
   const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
   const[note,setNote]=useState(initial?.note||"");
   const[busy,setBusy]=useState(false);
   const[conflicts,setConflicts]=useState([]);
+  const[quelle,setQuelle]=useState("");        // Ausgleich für fehlende Urlaubstage
   const wd=countWD(von,bis);
+
+  // ── Urlaubskonto prüfen ──────────────────────────────────────────
+  const k=kontingent||null;
+  const restJahr   =k?Math.max(0,Math.round((k.urlaubstage -k.genutztUrlaub)*2)/2):0;
+  const restVorjahr=k?Math.max(0,Math.round((k.resturlaub  -k.genutztRest )*2)/2):0;
+  const restUeber  =k?Math.max(0,Math.round((k.ueberstunden-k.genutztUeber)*2)/2):0;
+  // Nur beim Neuanlegen von normalem Urlaub prüfen
+  const pruefen=!!k&&!initial&&type==="urlaub"&&wd>0;
+  const fehlend=pruefen?Math.max(0,Math.round((wd-restJahr)*2)/2):0;
+  const ausgleichMoeglich=restVorjahr+restUeber;
+  const gewaehlteReserve=quelle==="resturlaub"?restVorjahr:quelle==="ueberstunden"?restUeber:0;
+  const blockiert=fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend);
+
+  // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
+  useEffect(()=>{setQuelle("");},[von,bis,type]);
 
   // Konflikt-Prüfung in Echtzeit
   useEffect(()=>{
@@ -2168,11 +2398,21 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
 
   async function save(){
     if(!von||!bis||bis<von){alert("Bitte gültige Daten wählen.");return;}
+    if(blockiert)return;
     if(conflicts.length>0&&!isAdmin){
       const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub eines Kollegen.\nTrotzdem beantragen?`);
       if(!ok)return;
     }
-    setBusy(true);try{await onSave({type,von,bis,note});}finally{setBusy(false);}
+    // Reicht der Jahresurlaub nicht, wird der Zeitraum am passenden Tag geteilt
+    let pakete=[{type,von,bis,note}];
+    if(fehlend>0&&quelle){
+      const trenn=splitDatum(von,bis,restJahr);
+      const zusatz=(note?note+" · ":"")+"Ausgleich: "+fmtT(fehlend)+" T aus "+(quelle==="resturlaub"?"Resturlaub Vorjahr":"Überstunden");
+      pakete=trenn
+        ?[{type:"urlaub",von,bis:trenn,note},{type:quelle,von:naechsterTag(trenn),bis,note:zusatz}]
+        :[{type:quelle,von,bis,note:zusatz}];
+    }
+    setBusy(true);try{await onSave(pakete);}finally{setBusy(false);}
   }
   return(
     <div style={S.overlay}>
@@ -2180,12 +2420,57 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
         <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
         <div style={S.mBd}>
           <div style={{marginBottom:12}}><label style={S.lbl}>Typ</label><select style={S.inp} value={type} onChange={e=>setType(e.target.value)}><option value="urlaub">Urlaub</option><option value="resturlaub">Resturlaub (Vorjahr)</option><option value="ueberstunden">Überstunden abbauen</option></select></div>
-          <div style={{marginBottom:12}}><label style={S.lbl}>Von</label><input style={S.inp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/></div>
-          <div style={{marginBottom:12}}><label style={S.lbl}>Bis</label><input style={S.inp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/></div>
-          <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
-          <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between"}}>
-            <span>Arbeitstage (Mo–Fr): <strong style={{color:"#2d3a2e"}}>{fmtT(wd)}</strong></span>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div><label style={S.lbl}>Von</label><input style={S.dateInp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/></div>
+            <div><label style={S.lbl}>Bis</label><input style={S.dateInp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/></div>
           </div>
+          <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
+          <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+            <span>Urlaubstage (ohne Feiertage): <strong style={{color:"#2d3a2e"}}>{fmtT(wd)}</strong></span>
+            {pruefen&&<span>Verfügbar {new Date().getFullYear()}: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(restJahr)} T</strong></span>}
+          </div>
+
+          {/* Urlaubskonto reicht nicht */}
+          {fehlend>0&&(
+            <div style={{background:ausgleichMoeglich>0?"#fff7ed":"#fef2f2",border:"1.5px solid "+(ausgleichMoeglich>0?"#f0932b":"#fca5a5"),borderRadius:8,padding:"10px 12px",marginTop:4}}>
+              <div style={{fontWeight:700,fontSize:13,color:ausgleichMoeglich>0?"#92400e":"#b91c1c",marginBottom:6}}>
+                ⚠ Nicht genügend Urlaub für diesen Zeitraum
+              </div>
+              <div style={{fontSize:12,color:ausgleichMoeglich>0?"#b45309":"#b91c1c",marginBottom:ausgleichMoeglich>0?8:0}}>
+                Der Zeitraum benötigt {fmtT(wd)} Tage, im laufenden Jahr sind noch {fmtT(restJahr)} Tage frei.
+                Es fehlen <strong>{fmtT(fehlend)} Tage</strong>.
+              </div>
+              {ausgleichMoeglich>0?(
+                <div>
+                  <div style={{fontSize:12,color:"#92400e",fontWeight:600,marginBottom:6}}>
+                    Sollen die fehlenden Tage hierüber ausgeglichen werden?
+                  </div>
+                  {restVorjahr>0&&(
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e",cursor:"pointer",padding:"4px 0"}}>
+                      <input type="radio" name="ausgleich" checked={quelle==="resturlaub"} onChange={()=>setQuelle("resturlaub")} disabled={restVorjahr<fehlend}/>
+                      <span>↩ Resturlaub aus dem Vorjahr — {fmtT(restVorjahr)} T verfügbar{restVorjahr<fehlend?" (reicht nicht)":""}</span>
+                    </label>
+                  )}
+                  {restUeber>0&&(
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e",cursor:"pointer",padding:"4px 0"}}>
+                      <input type="radio" name="ausgleich" checked={quelle==="ueberstunden"} onChange={()=>setQuelle("ueberstunden")} disabled={restUeber<fehlend}/>
+                      <span>⏱ Überstunden abbauen — {fmtT(restUeber)} T verfügbar{k?.stdProTag?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""}{restUeber<fehlend?" · reicht nicht":""}</span>
+                    </label>
+                  )}
+                  {quelle&&!blockiert&&(
+                    <div style={{fontSize:11,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 8px",marginTop:6}}>
+                      ✓ Der Zeitraum wird automatisch geteilt: {fmtT(restJahr)} T Urlaub und {fmtT(fehlend)} T {quelle==="resturlaub"?"Resturlaub":"Überstunden"}
+                      {quelle==="ueberstunden"&&k?.stdProTag?" (entspricht "+fmtStd(fehlend*k.stdProTag)+" Stunden bei "+fmtStd(k.stdProTag)+" Std./Tag)":""}.
+                    </div>
+                  )}
+                </div>
+              ):(
+                <div style={{fontSize:12,color:"#b91c1c",marginTop:4}}>
+                  Es steht weder Resturlaub aus dem Vorjahr noch ein Überstundenguthaben zur Verfügung. Bitte den Zeitraum verkürzen.
+                </div>
+              )}
+            </div>
+          )}
           {/* Konflikt-Warnung */}
           {conflicts.length>0&&(
             <div style={{background:"#fff7ed",border:"1.5px solid #f0932b",borderRadius:8,padding:"10px 12px",marginTop:4}}>
@@ -2205,7 +2490,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           )}
           {!isAdmin&&<div style={{fontSize:11,color:"#8aaa5f",marginTop:6}}>Dein Antrag wird dem Administrator zur Genehmigung vorgelegt.</div>}
         </div>
-        <div style={S.mFt}><button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={save} disabled={busy}>{isAdmin?"Speichern":"Beantragen"}</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
+        <div style={S.mFt}><button style={{...S.savBtn,opacity:(busy||blockiert)?0.5:1,cursor:blockiert?"not-allowed":"pointer"}} onClick={save} disabled={busy||blockiert} title={blockiert?"Nicht genügend Urlaubstage":""}>{isAdmin?"Speichern":"Beantragen"}</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
       </div>
     </div>
   );
@@ -2583,6 +2868,7 @@ const S={
   mBd:{padding:"18px 22px"},
   mFt:{padding:"14px 22px 18px",display:"flex",gap:10,borderTop:"1px solid #edf5ee"},
   inp:{width:"100%",background:"#f8faf0",border:"1.5px solid #c8d890",borderRadius:8,padding:"9px 12px",color:"#2d3a2e",fontSize:13,outline:"none",boxSizing:"border-box",transition:"border .15s"},
+  dateInp:{width:"100%",background:"#f8faf0",border:"1.5px solid #c8d890",borderRadius:8,padding:"7px 10px",color:"#2d3a2e",fontSize:13,lineHeight:1.2,height:38,outline:"none",boxSizing:"border-box",textAlign:"left",WebkitAppearance:"none",appearance:"none",fontFamily:"inherit"},
   lbl:{display:"block",fontSize:11,fontWeight:700,color:"#5a6b4a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"},
   savBtn:{background:"#5a8a1f",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 2px 6px rgba(61,122,79,0.25)"},
   canBtn:{background:"#f5f8ec",color:"#5a6b4a",border:"1px solid #d5e8a0",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",fontWeight:600},
