@@ -658,10 +658,11 @@ export default function App(){
     const sofortBestaetigt=isAdmin||(user_id!==profile?.id&&canManage(profile,zielProfil));
     // Konfliktcheck (Mitarbeiter)
     if(!sofortBestaetigt){
-      const conflicts=await checkConflicts(user_id,von,bis);
+      // Nur Überschneidungen im eigenen Fachbereich sind relevant
+      const zb=posInfo(zielProfil?.position).bereich;
+      const conflicts=(await checkConflicts(user_id,von,bis)).filter(c=>bereichVon(c.user_id)===zb);
       if(conflicts.length>0){
-        const names=conflicts.map(c=>c.profiles?.vorname||"Jemand").join(", ");
-        notify(`Zeitraum überschneidet sich mit: ${names}. Antrag trotzdem gestellt – Admin entscheidet.`,"warn");
+        notify(`Im Bereich ${BEREICH_NAME[zb]||"deines Teams"} ist im gewählten Zeitraum bereits Urlaub eingetragen. Der Antrag wurde gestellt – die Leitung entscheidet.`,"warn");
       }
     }
     const e=await createEntry({user_id,type,von,bis,note});
@@ -678,10 +679,12 @@ export default function App(){
     if(status==="confirmed"){
       const entry=entries.find(e=>e.id===id);
       if(entry){
-        const conflicts=await checkConflicts(entry.user_id,entry.von,entry.bis);
+        const zb=bereichVon(entry.user_id);
+        const conflicts=(await checkConflicts(entry.user_id,entry.von,entry.bis))
+          .filter(c=>bereichVon(c.user_id)===zb);
         if(conflicts.length>0){
           const names=conflicts.map(c=>c.profiles?.vorname||"jemand").join(", ");
-          if(!window.confirm(`Überschneidung mit ${names}. Trotzdem bestätigen?`))return;
+          if(!window.confirm(`Überschneidung im Bereich ${BEREICH_NAME[zb]||"–"} mit: ${names}.\n\nTrotzdem bestätigen?`))return;
         }
       }
       await setEntryStatus(id,status);
@@ -869,6 +872,8 @@ export default function App(){
   const pwu=profilesWithEntries();
   // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
   const meineLeute=pwu.filter(u=>canManage(profile,u));
+  // Fachbereich einer Person — Grundlage für Überschneidungen
+  const bereichVon=id=>posInfo(profiles.find(p=>p.id===id)?.position).bereich;
 
   return(
     <div style={S.app}>
@@ -1091,6 +1096,7 @@ export default function App(){
       )}
 
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
+        bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u)return null;
@@ -1105,7 +1111,7 @@ export default function App(){
           }
           setModal(null);
         }} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} allEntries={entries} currentUserId={modal.data.entry?.user_id} bereichVon={bereichVon} zielBereich={bereichVon(modal.data.entry?.user_id)} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
       {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={calEntries().filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
@@ -2482,7 +2488,7 @@ Thomas Keilig`;
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||`${year}-01-01`);
   const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
@@ -2514,7 +2520,9 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
       e.status==="confirmed"&&
       e.user_id!==currentUserId&&
       e.id!==initial?.id&&
-      von<=e.bis&&bis>=e.von
+      von<=e.bis&&bis>=e.von&&
+      // Nur derselbe Fachbereich zählt als Überschneidung
+      (!bereichVon||!zielBereich||bereichVon(e.user_id)===zielBereich)
     );
     setConflicts(cf);
   },[von,bis,allEntries,currentUserId]);
@@ -2523,7 +2531,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
     if(!von||!bis||bis<von){alert("Bitte gültige Daten wählen.");return;}
     if(blockiert)return;
     if(conflicts.length>0&&!isAdmin){
-      const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub eines Kollegen.\nTrotzdem beantragen?`);
+      const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub im selben Fachbereich.\nTrotzdem beantragen?`);
       if(!ok)return;
     }
     // Reicht der Jahresurlaub nicht, wird der Zeitraum am passenden Tag geteilt
@@ -2598,7 +2606,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           {conflicts.length>0&&(
             <div style={{background:"#fff7ed",border:"1.5px solid #f0932b",borderRadius:8,padding:"10px 12px",marginTop:4}}>
               <div style={{fontWeight:700,fontSize:13,color:"#92400e",marginBottom:4}}>
-                ⚠ Überschneidung mit {conflicts.length} {conflicts.length===1?"Kollegen":"Kollegen"}
+                ⚠ Überschneidung im Fachbereich {BEREICH_NAME[zielBereich]||""} ({conflicts.length} {conflicts.length===1?"Eintrag":"Einträge"})
               </div>
               {conflicts.slice(0,3).map((e,i)=>(
                 <div key={i} style={{fontSize:12,color:"#b45309"}}>
@@ -2606,8 +2614,8 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
                 </div>
               ))}
               {isAdmin
-                ? <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Als Admin kannst du den Eintrag trotzdem bestätigen.</div>
-                : <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Du kannst den Antrag trotzdem stellen — der Admin entscheidet.</div>
+                ? <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Du kannst den Eintrag trotzdem bestätigen.</div>
+                : <div style={{fontSize:11,color:"#92400e",marginTop:4}}>Du kannst den Antrag trotzdem stellen — die zuständige Leitung entscheidet.</div>
               }
             </div>
           )}
