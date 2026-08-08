@@ -287,6 +287,18 @@ function splitDatum(von,bis,budget){
   return letzter;
 }
 
+// Schmaler Bildschirm (Handy)? Steuert die kompakte Darstellung der Kalenderleiste
+function useSchmal(grenze=780){
+  const [schmal,setSchmal]=useState(typeof window!=="undefined"&&window.innerWidth<grenze);
+  useEffect(()=>{
+    const pruefe=()=>setSchmal(window.innerWidth<grenze);
+    window.addEventListener("resize",pruefe);
+    window.addEventListener("orientationchange",pruefe);
+    return()=>{window.removeEventListener("resize",pruefe);window.removeEventListener("orientationchange",pruefe);};
+  },[grenze]);
+  return schmal;
+}
+
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
@@ -305,6 +317,7 @@ export default function App(){
   const [showFerien,setShowFerien]=useState(true);
   const [showFeiertage,setShowFeiertage]=useState(true);
   const [kalBereich,setKalBereich]=useState("alle");   // Bereichsfilter im Kalender (nur Leitung)
+  const schmal=useSchmal();                            // Handy-Ansicht?
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
   const [tooltip,setTooltip]=useState(null);
@@ -906,9 +919,9 @@ export default function App(){
           }
           setView("eintraege");
         }} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
-        <div style={S.legend}>
+        <div style={{...S.legend,...(schmal?{marginLeft:0,alignItems:"stretch",width:"100%",gap:4}:{})}}>
           {/* Zeile 1: Mitarbeiterfarben */}
-          <div style={S.legRow}>
+          <div style={{...S.legRow,...(schmal?{flexWrap:"nowrap",overflowX:"auto",justifyContent:"flex-start",gap:10,paddingBottom:2}:{})}}>
             {pwu.filter(u=>canManage(profile,u)&&imKalenderFilter(u)
                 &&u.entries.some(e=>e.status==="confirmed"
                   &&(e.von?.startsWith(String(year))||e.bis?.startsWith(String(year))))).map(u=>(
@@ -916,7 +929,17 @@ export default function App(){
             ))}
           </div>
           {/* Zeile 2: Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
-          {darfBereichFiltern&&view==="kalender"&&(
+          {darfBereichFiltern&&view==="kalender"&&(schmal?(
+            /* Handy: platzsparendes Auswahlmenü */
+            <select value={kalBereich} onChange={e=>setKalBereich(e.target.value)}
+              style={{background:kalBereich==="alle"?"#f8faf0":"#e8f3d6",border:"1.5px solid "+(kalBereich==="alle"?"#c8d890":"#7ab529"),
+                borderRadius:14,padding:"5px 10px",fontSize:12,fontWeight:700,
+                color:"#4a6b0f",maxWidth:"100%",outline:"none"}}>
+              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
+                <option key={k} value={k}>{k==="alle"?"Alle Bereiche":lbl.replace(/^[^ ]+ /,"")}</option>
+              ))}
+            </select>
+          ):(
             <div style={S.legRow}>
               {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
                 <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
@@ -928,9 +951,9 @@ export default function App(){
                 }}>{lbl}</button>
               ))}
             </div>
-          )}
+          ))}
           {/* Zeile 3: Ferien- und Feiertagsanzeige */}
-          <div style={S.legRow}>
+          <div style={{...S.legRow,...(schmal?{justifyContent:"flex-start"}:{})}}>
           {/* Ferien Toggle — klickbar */}
           <button onClick={()=>setShowFerien(v=>!v)} style={{
             display:"flex",alignItems:"center",gap:5,background:"none",cursor:"pointer",
