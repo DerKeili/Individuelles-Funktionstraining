@@ -86,7 +86,7 @@ export async function getAllProfiles() {
 }
 export async function updateProfile(userId, updates) {
   const { data, error } = await supabase.from("profiles").update(updates).eq("id", userId).select().single();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
 // Datenbank-Fehlermeldungen in verständliches Deutsch übersetzen
@@ -100,6 +100,11 @@ function friendlyUserError(msg) {
     return "Nur Administratoren dürfen Benutzer anlegen oder löschen.";
   if (m.includes("passwort zu kurz"))
     return "Das Passwort muss mindestens 8 Zeichen lang sein.";
+  if (m.includes("schema cache") || m.includes("column")) {
+    const feld = (msg.match(/'([a-z_]+)' column/) || [])[1];
+    return "Die Datenbank kennt das Feld" + (feld ? " \"" + feld + "\"" : "") +
+           " noch nicht. Bitte das SQL-Update \"Arbeitszeit\" in Supabase ausführen.";
+  }
   if (m.includes("could not find the function") || m.includes("does not exist"))
     return "Die Datenbankfunktion fehlt. Bitte das SQL-Update in Supabase ausführen.";
   if (m.includes("failed to fetch") || m.includes("networkerror"))

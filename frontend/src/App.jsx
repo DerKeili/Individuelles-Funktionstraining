@@ -906,12 +906,15 @@ export default function App(){
           setView("eintraege");
         }} style={{...S.pendBadge,cursor:"pointer",border:"none"}}>{pendingCount} ausstehend ▶</button>}
         <div style={S.legend}>
-          {pwu.filter(u=>canManage(profile,u)&&u.entries.some(e=>e.status==="confirmed")).map(u=>(
-            <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
-          ))}
-          {/* Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
+          {/* Zeile 1: Mitarbeiterfarben */}
+          <div style={S.legRow}>
+            {pwu.filter(u=>canManage(profile,u)&&u.entries.some(e=>e.status==="confirmed")).map(u=>(
+              <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
+            ))}
+          </div>
+          {/* Zeile 2: Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
           {darfBereichFiltern&&view==="kalender"&&(
-            <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",borderLeft:"1px solid #d5e8a0",paddingLeft:8,marginLeft:2}}>
+            <div style={S.legRow}>
               {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
                 <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
                   background:kalBereich===k?"#e8f3d6":"none",cursor:"pointer",
@@ -923,6 +926,8 @@ export default function App(){
               ))}
             </div>
           )}
+          {/* Zeile 3: Ferien- und Feiertagsanzeige */}
+          <div style={S.legRow}>
           {/* Ferien Toggle — klickbar */}
           <button onClick={()=>setShowFerien(v=>!v)} style={{
             display:"flex",alignItems:"center",gap:5,background:"none",cursor:"pointer",
@@ -947,6 +952,7 @@ export default function App(){
               {showFeiertage?"🎉 Feiertag":"— Feiertag"}
             </span>
           </button>
+          </div>
         </div>
       </nav>
 
@@ -2937,7 +2943,8 @@ const S={
   navBtn:{background:"none",border:"none",color:"#5a6b4a",padding:"13px 14px",fontSize:13,fontWeight:600,borderBottom:"3px solid transparent",whiteSpace:"nowrap",cursor:"pointer",transition:"color .15s"},
   navAct:{color:"#5a8a1f",borderBottom:"3px solid #5a8a1f"},
   pendBadge:{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,marginLeft:6,border:"1px solid #fde68a"},
-  legend:{marginLeft:"auto",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",paddingLeft:12},
+  legend:{marginLeft:"auto",display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end",paddingLeft:12},
+  legRow:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"},
   legItem:{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#5a6b4a"},
   legDot:{width:9,height:9,borderRadius:"50%"},
   notif:{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",borderRadius:10,padding:"11px 22px",zIndex:2500,fontSize:13,boxShadow:"0 8px 32px rgba(61,122,79,0.2)",maxWidth:"90vw",textAlign:"center",border:"1px solid",fontWeight:500},
