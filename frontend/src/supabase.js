@@ -54,7 +54,7 @@ export function signOutHart() {
 }
 
 // Sitzung direkt aus dem Speicher lesen (ohne Netzwerk, ohne Sperren)
-function sessionAusSpeicher() {
+export function sessionAusSpeicher() {
   try {
     const roh = localStorage.getItem(STORAGE_KEY);
     if (!roh) return null;

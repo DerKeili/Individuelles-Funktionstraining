@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   supabase, signIn, signOut, getSession,
-  getProfile, getAllProfiles, updateProfile, createUser, deleteUser, signOutHart,
+  getProfile, getAllProfiles, updateProfile, createUser, deleteUser, signOutHart, sessionAusSpeicher,
   getAllEntries, getMyEntries, getConfirmedEntries,
   createEntry, updateEntry, setEntryStatus, deleteEntry, checkConflicts,
   adminResetPassword, requestPasswordReset,
@@ -348,6 +348,10 @@ export default function App(){
   // ── Session-Init ──────────────────────────────────────────────────
   // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
   function sessionAbgelaufen(sess){
+    // Token bereits abgelaufen? Dann ist eine Erneuerung nötig — die machen wir
+    // bewusst nicht mehr, sondern lassen neu anmelden (Vorgabe: täglich neu).
+    const exp=sess?.expires_at;
+    if(exp&&Date.now()>exp*1000)return true;
     const last=sess?.user?.last_sign_in_at;
     if(!last)return false;
     const anmeldung=new Date(last);
@@ -384,10 +388,25 @@ export default function App(){
     setDbError(false);
     setLoading(true);
     try{
-      const sess=await mitWiederholung(()=>getSession());
+      // ZUERST ohne Netzwerk prüfen: liegt die letzte Anmeldung vor dem heutigen Tag,
+      // ist die Sitzung ohnehin hinfällig. Dann gar nicht erst versuchen, das
+      // abgelaufene Token zu erneuern — genau dabei blieb die App bisher stehen.
+      const gespeichert=sessionAusSpeicher();
+      if(gespeichert&&sessionAbgelaufen(gespeichert)){
+        signOutHart();
+        try{signOut();}catch(e){}
+        setSession(null);setProfile(null);setProfiles([]);setEntries([]);
+        profileLoadedRef.current=false;
+        setLoading(false);
+        return;
+      }
+      if(!gespeichert){setSession(null);setLoading(false);return;}
+
+      const sess=await mitWiederholung(()=>getSession(),2,6000);
       if(!sess){setLoading(false);return;}
       if(sessionAbgelaufen(sess)){
-        await signOut();
+        signOutHart();
+        try{signOut();}catch(e){}
         setSession(null);setProfile(null);setProfiles([]);setEntries([]);
         profileLoadedRef.current=false;
         setLoading(false);
@@ -397,9 +416,14 @@ export default function App(){
       await mitWiederholung(()=>loadAll(sess.user.id),2,12000);
       setLoading(false);
     }catch(e){
-      // Nur melden, wenn die App wirklich sichtbar ist — sonst still im Hintergrund lassen
-      if(document.visibilityState==="visible")setDbError(true);
-      setLoading(false);
+      // Ohne gültige gespeicherte Sitzung ist die Anmeldemaske die richtige Antwort
+      if(!sessionAusSpeicher()){
+        setSession(null);
+        setLoading(false);
+      }else{
+        if(document.visibilityState==="visible")setDbError(true);
+        setLoading(false);
+      }
     }finally{
       bootRef.current=false;
     }
@@ -489,7 +513,7 @@ export default function App(){
     if(!loading)return;
     const t=setTimeout(()=>{
       if(ladeRef.current){setLoading(false);setDbError(true);bootRef.current=false;}
-    },20000);
+    },12000);
     return()=>clearTimeout(t);
   },[loading]);
 
