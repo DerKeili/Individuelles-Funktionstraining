@@ -299,6 +299,26 @@ function useSchmal(grenze=780){
   return schmal;
 }
 
+// Welche Feiertage und halben Tage liegen im gewählten Zeitraum?
+function besondereTage(von,bis){
+  if(!von||!bis||bis<von)return [];
+  const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);
+  let cur=new Date(y1,m1-1,d1);const ende=new Date(y2,m2-1,d2);
+  const liste=[];
+  while(cur<=ende){
+    const w=cur.getDay(),iso=isoOf(cur);
+    if(w!==0&&w!==6){
+      if(HALBE_TAGE.includes(iso.slice(5)))
+        liste.push({iso,name:iso.slice(5)==="12-24"?"Heiligabend":"Silvester",halb:true});
+      else{
+        const ft=isFT(iso,AKT_BL,cur.getFullYear());
+        if(ft)liste.push({iso,name:ft,halb:false});
+      }
+    }
+    cur.setDate(cur.getDate()+1);
+  }
+  return liste;
+}
 const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
@@ -1649,14 +1669,57 @@ function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfc
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
 function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
+  const schmal=useSchmal();
+  const zahlen=u=>{
+    const e=u.entries||[];
+    return{urlT:eDays(e,"urlaub")+eDays(e,"resturlaub"),ueT:eDays(e,"ueberstunden"),
+           pend:e.filter(x=>x.status==="pending").length};
+  };
+  // Handy: Karten statt Tabelle
+  if(schmal)return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,gap:10,flexWrap:"wrap"}}>
+        <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
+        {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Anlegen</button>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {users.map(u=>{
+          const{urlT,ueT,pend}=zahlen(u);
+          return(
+            <div key={u.id} style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",padding:12,boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+                <div style={{...S.av,width:34,height:34,fontSize:14,background:u.color||"#2563EB",flexShrink:0}}>{u.vorname?.[0]||"?"}</div>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"#2d3a2e"}}>{u.vorname} {u.nachname}</div>
+                  <div style={{fontSize:12,color:"#5a6b4a"}}>{posLabel(u.position,u.geschlecht)}</div>
+                </div>
+                <span style={{fontSize:10,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"3px 8px",borderRadius:10,fontWeight:700,whiteSpace:"nowrap"}}>{rolleLabel(u.role)}</span>
+              </div>
+              <div style={{fontSize:11,color:"#8aaa5f",wordBreak:"break-all",marginBottom:8}}>{u.email}</div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:"#2d3a2e",marginBottom:10}}>
+                <span>🏖 Urlaub: <strong>{fmtT(urlT)} / {u.urlaubstage||30}</strong></span>
+                <span>⏱ Überstd.: <strong>{fmtT(ueT)} / {u.ueberstunden||0}</strong></span>
+                <span>🕐 {fmtStd(u.wochenstunden||0)} Std. / {u.arbeitstage_woche||5} Tage</span>
+              </div>
+              {pend>0&&<div style={{marginBottom:10}}><Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/></div>}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onEdit(u)}>✏️ Bearbeiten</button>
+                {canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171",padding:"7px 14px"}} onClick={()=>onDelete(u.id)}>🗑 Löschen</button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
         {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>}
       </div>
-      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflowX:"auto",WebkitOverflowScrolling:"touch",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
           <thead><tr style={{background:"#f8faf0"}}>{["Name","Position","Berechtigung","Urlaub","Überstunden","Offen",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {users.map(u=>{
@@ -2678,6 +2741,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const[conflicts,setConflicts]=useState([]);
   const[quelle,setQuelle]=useState("");        // Ausgleich für fehlende Urlaubstage
   const wd=countWD(von,bis);
+  const feiertageImZeitraum=besondereTage(von,bis);
 
   // ── Urlaubskonto prüfen ──────────────────────────────────────────
   const k=kontingent||null;
@@ -2702,7 +2766,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   })();
   const doppelt=eigeneUeberschneidung.length>0;
 
-  const blockiert=doppelt||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
+  const blockiert=doppelt||wd===0||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
 
   // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
   useEffect(()=>{setQuelle("");},[von,bis,type]);
@@ -2752,9 +2816,26 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           </div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
           <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-            <span>Urlaubstage (ohne Feiertage): <strong style={{color:"#2d3a2e"}}>{fmtT(wd)}</strong></span>
+            <span>Urlaubstage (ohne Feiertage): <strong style={{color:wd===0?"#dc2626":"#2d3a2e"}}>{fmtT(wd)}</strong></span>
             {pruefen&&<span>Verfügbar {new Date().getFullYear()}: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(restJahr)} T</strong></span>}
           </div>
+
+          {/* Warum werden Tage nicht gezählt? */}
+          {feiertageImZeitraum.length>0&&(
+            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:6,padding:"7px 10px"}}>
+              {feiertageImZeitraum.map((f,i)=>(
+                <div key={i}>🎉 {fmtDE(f.iso)} · {f.name}{f.halb?" – zählt als halber Tag":" – Feiertag, kostet keinen Urlaub"}</div>
+              ))}
+            </div>
+          )}
+          {wd===0&&(
+            <div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:2}}>⛔ Kein Arbeitstag im Zeitraum</div>
+              <div style={{fontSize:12,color:"#b91c1c"}}>
+                Der Zeitraum besteht nur aus Wochenenden und Feiertagen — ein Urlaubsantrag ist nicht nötig.
+              </div>
+            </div>
+          )}
 
           {/* Bereits vorhandener eigener Eintrag im selben Zeitraum */}
           {doppelt&&(
