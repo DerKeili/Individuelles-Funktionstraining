@@ -666,6 +666,7 @@ export default function App(){
       try{
         // Laden ohne Spinner
         let newEntries=[];
+        ladeUeAntraege();
         if(isLeitung){
           newEntries=await getAllEntries();
           setEntries(newEntries);
@@ -764,8 +765,18 @@ export default function App(){
     role:"Berechtigung",
   };
   // Überstundenanträge laden (RLS liefert nur Eigene bzw. die geführten Mitarbeiter)
+  const prevUeRef=useRef(-1);
   async function ladeUeAntraege(){
-    try{setUeAntraege(await getUeberstundenAntraege());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
+    try{
+      const liste=await getUeberstundenAntraege();
+      setUeAntraege(liste);
+      // Neue offene Anträge fremder Mitarbeiter? → Hinweis für die Leitung
+      const offen=liste.filter(a=>a.status==="pending"&&a.user_id!==session?.user?.id).length;
+      if(prevUeRef.current>=0&&offen>prevUeRef.current){
+        notify(`🔔 ${offen-prevUeRef.current} neuer Überstundenantrag eingegangen!`,"warn");
+      }
+      prevUeRef.current=offen;
+    }catch(e){/* Tabelle evtl. noch nicht angelegt */}
   }
   useEffect(()=>{if(session&&profile)ladeUeAntraege();},[session,profile]);
 
@@ -972,7 +983,10 @@ export default function App(){
   }
 
   const stateName=BUNDESLAENDER.find(b=>b[0]===bundesland)?.[1]||"";
-  const pendingCount=entries.filter(e=>e.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===e.user_id))).length;
+  const offeneUeAntraege=(ueAntraege||[]).filter(a=>
+    a.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===a.user_id)));
+  const pendingCount=entries.filter(e=>e.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===e.user_id))).length
+    +offeneUeAntraege.length;
 
   if(dbError)return(
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:24}}>
@@ -2213,28 +2227,50 @@ tr:nth-child(even) td{background:#f9fdf5;}
         </div>
       )}
 
-      {/* Eigene Überstundenanträge */}
-      {meineUeAntraege.length>0&&(
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>⏱ Meine Überstundenanträge</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {meineUeAntraege.map(a=>(
-              <div key={a.id} style={{background:"#fff",border:"1px solid #d5e8a0",borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <strong style={{fontSize:14,color:a.stunden<0?"#b45309":"#2d3a2e"}}>
-                  {a.stunden>0?"+":""}{fmtStd(a.stunden)} Std.
-                </strong>
-                {a.grund&&<span style={{fontSize:12,color:"#5a6b4a"}}>{a.grund}</span>}
-                <span style={{marginLeft:"auto"}}><StBadge status={a.status}/></span>
-                {a.status==="pending"&&(
-                  <button style={{...S.icnBtn,color:"#f87171"}} title="Zurückziehen"
-                    onClick={()=>{if(window.confirm("Antrag zurückziehen?"))onUeZurueck(a.id);}}>🗑</button>
-                )}
-                {a.hinweis&&<div style={{fontSize:11,color:"#8aaa5f",width:"100%"}}>Hinweis: {a.hinweis}</div>}
-              </div>
-            ))}
-          </div>
+      {/* Eigene Überstundenanträge — immer sichtbar, damit der Stand klar ist */}
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>
+          ⏱ Meine Überstundenanträge
+          {meineUeAntraege.filter(a=>a.status==="pending").length>0&&
+            <span style={{marginLeft:8,fontSize:11,background:"#fef3c7",color:"#92400e",borderRadius:10,padding:"2px 8px"}}>
+              {meineUeAntraege.filter(a=>a.status==="pending").length} offen
+            </span>}
         </div>
-      )}
+        {meineUeAntraege.length===0?(
+          <div style={{background:"#fff",border:"1px dashed #d5e8a0",borderRadius:10,padding:"14px 12px",fontSize:12,color:"#8aaa5f"}}>
+            Noch keine Überstunden gemeldet. Über „⏱ Überstunden melden" oben kannst du eine Änderung beantragen.
+          </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {meineUeAntraege.map(a=>{
+              const tage=stdTag>0?Math.round((a.stunden/stdTag)*100)/100:null;
+              const farbe=a.status==="confirmed"?"#7ab529":a.status==="rejected"?"#fca5a5":"#f0932b";
+              return(
+                <div key={a.id} style={{background:"#fff",border:"1.5px solid "+farbe,borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <strong style={{fontSize:15,color:a.stunden<0?"#b45309":"#2d3a2e"}}>
+                      {a.stunden>0?"+":""}{fmtStd(a.stunden)} Std.
+                    </strong>
+                    {tage!==null&&<span style={{fontSize:12,color:"#5a6b4a"}}>≙ {fmtT(tage)} Tage</span>}
+                    <span style={{marginLeft:"auto"}}><StBadge status={a.status}/></span>
+                    {a.status==="pending"&&(
+                      <button style={{...S.icnBtn,color:"#f87171"}} title="Antrag zurückziehen"
+                        onClick={()=>{if(window.confirm("Antrag zurückziehen?"))onUeZurueck(a.id);}}>🗑</button>
+                    )}
+                  </div>
+                  {a.grund&&<div style={{fontSize:12,color:"#5a6b4a",marginTop:4}}>„{a.grund}"</div>}
+                  <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>
+                    Eingereicht: {a.created_at?new Date(a.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
+                    {a.status==="pending"&&" · wartet auf die Leitung"}
+                    {a.entschieden_am&&" · entschieden am "+new Date(a.entschieden_am).toLocaleDateString("de-DE")}
+                  </div>
+                  {a.hinweis&&<div style={{fontSize:11,color:"#b45309",marginTop:4}}>Rückmeldung: {a.hinweis}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
