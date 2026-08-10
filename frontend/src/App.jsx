@@ -319,6 +319,27 @@ function besondereTage(von,bis){
   }
   return liste;
 }
+// Alter in Jahren aus dem Geburtsdatum (Geburtstag im laufenden Jahr berücksichtigt)
+function alterAus(iso){
+  if(!iso)return null;
+  const[y,m,d]=iso.split("-").map(Number);
+  if(!y||!m||!d)return null;
+  const heute=new Date();
+  let a=heute.getFullYear()-y;
+  const hatteGeburtstag=(heute.getMonth()+1>m)||(heute.getMonth()+1===m&&heute.getDate()>=d);
+  if(!hatteGeburtstag)a--;
+  return (a>=0&&a<130)?a:null;
+}
+// Steht der Geburtstag heute oder in den nächsten Tagen an?
+function tageBisGeburtstag(iso){
+  if(!iso)return null;
+  const[,m,d]=iso.split("-").map(Number);
+  if(!m||!d)return null;
+  const heute=new Date();heute.setHours(0,0,0,0);
+  let next=new Date(heute.getFullYear(),m-1,d);
+  if(next<heute)next=new Date(heute.getFullYear()+1,m-1,d);
+  return Math.round((next-heute)/86400000);
+}
 const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
@@ -2325,10 +2346,21 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
             <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>Änderungen an der Arbeitszeit nimmt die Leitung vor.</div>
           </div>
           {/* Zeile 3: Geburtsdatum alleine - iOS date braucht volle Breite */}
-          <div style={{maxWidth:240}}>
+          <div style={{maxWidth:280}}>
             <label style={S.lbl}>Geburtsdatum</label>
-            <input style={S.inp} type="date" value={form.geburtsdatum}
-              onChange={e=>updateForm("geburtsdatum",e.target.value)}/>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <input style={{...S.inp,flex:1}} type="date" value={form.geburtsdatum}
+                onChange={e=>updateForm("geburtsdatum",e.target.value)}/>
+              {alterAus(form.geburtsdatum)!==null&&(
+                <span style={{fontSize:13,fontWeight:700,color:"#4a6b0f",background:"#f7fce8",
+                  border:"1px solid #d5e8a0",borderRadius:8,padding:"7px 11px",whiteSpace:"nowrap"}}>
+                  {tageBisGeburtstag(form.geburtsdatum)===0?"🎂 ":""}{alterAus(form.geburtsdatum)} J.
+                </span>
+              )}
+            </div>
+            {tageBisGeburtstag(form.geburtsdatum)===0&&(
+              <div style={{fontSize:11,color:"#4a6b0f",marginTop:4,fontWeight:600}}>🎉 Alles Gute zum Geburtstag!</div>
+            )}
           </div>
           {/* Zeile 3: Urlaubstage + Überstunden — nur von der Leitung änderbar */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2584,7 +2616,17 @@ Thomas Keilig`;
                 return "👤 Sieht und bearbeitet nur den eigenen Urlaub und die eigenen Stammdaten.";
               })()}
             </div>
-            <div style={{maxWidth:240}}><label style={S.lbl}>Geburtsdatum</label><input style={S.inp} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/></div>
+            <div style={{maxWidth:280}}><label style={S.lbl}>Geburtsdatum</label>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <input style={{...S.inp,flex:1}} type="date" value={f.geburtsdatum} onChange={e=>setF(p=>({...p,geburtsdatum:e.target.value}))}/>
+                {alterAus(f.geburtsdatum)!==null&&(
+                  <span style={{fontSize:13,fontWeight:700,color:"#4a6b0f",background:"#f7fce8",
+                    border:"1px solid #d5e8a0",borderRadius:8,padding:"7px 11px",whiteSpace:"nowrap"}}>
+                    {alterAus(f.geburtsdatum)} J.
+                  </span>
+                )}
+              </div>
+            </div>
             {/* Einstellungsdatum: nur für Admin sichtbar */}
             {isAdmin&&(
               <div>
