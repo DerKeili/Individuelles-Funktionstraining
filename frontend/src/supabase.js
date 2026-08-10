@@ -89,6 +89,36 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
+// ─── Überstundenanträge ──────────────────────────────────────────────
+export async function createUeberstundenAntrag(userId, stunden, grund) {
+  const { data, error } = await supabase.from("ueberstunden_antraege")
+    .insert({ user_id: userId, stunden, grund: grund || null, status: "pending" })
+    .select().single();
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+export async function getUeberstundenAntraege() {
+  const { data, error } = await supabase.from("ueberstunden_antraege")
+    .select("*, profiles(vorname,nachname,color,position,geschlecht,wochenstunden,arbeitstage_woche)")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
+export async function decideUeberstundenAntrag(antragId, status, hinweis) {
+  const { data, error } = await supabase.rpc("ueberstunden_entscheiden", {
+    p_antrag: antragId, p_status: status, p_hinweis: hinweis || null,
+  });
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+export async function deleteUeberstundenAntrag(antragId) {
+  const { error } = await supabase.from("ueberstunden_antraege").delete().eq("id", antragId);
+  if (error) throw new Error(friendlyUserError(error.message));
+}
+
 // Datenbank-Fehlermeldungen in verständliches Deutsch übersetzen
 function friendlyUserError(msg) {
   const m = (msg || "").toLowerCase();

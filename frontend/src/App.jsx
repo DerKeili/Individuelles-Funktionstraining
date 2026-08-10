@@ -8,6 +8,8 @@ import {
   getPasswordResetRequests, dismissResetRequest,
   createNotification, getMyNotifications, markNotificationRead,
   clearMustChangePassword,
+  createUeberstundenAntrag, getUeberstundenAntraege,
+  decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
 
 // ─── Feiertagsdaten 2025–2027 (alle 16 Bundesländer) ─────────────────────────
@@ -359,6 +361,7 @@ export default function App(){
   const [showFerien,setShowFerien]=useState(true);
   const [showFeiertage,setShowFeiertage]=useState(true);
   const [kalBereich,setKalBereich]=useState("alle");   // Bereichsfilter im Kalender (nur Leitung)
+  const [ueAntraege,setUeAntraege]=useState([]);       // Überstundenanträge
   const schmal=useSchmal();                            // Handy-Ansicht?
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
@@ -760,6 +763,38 @@ export default function App(){
     position:"Position",
     role:"Berechtigung",
   };
+  // Überstundenanträge laden (RLS liefert nur Eigene bzw. die geführten Mitarbeiter)
+  async function ladeUeAntraege(){
+    try{setUeAntraege(await getUeberstundenAntraege());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
+  }
+  useEffect(()=>{if(session&&profile)ladeUeAntraege();},[session,profile]);
+
+  async function handleUeAntrag(stunden,grund){
+    try{
+      await createUeberstundenAntrag(session.user.id,stunden,grund);
+      await ladeUeAntraege();
+      notify("Überstundenantrag eingereicht – die Leitung entscheidet.");
+    }catch(e){notify("Antrag fehlgeschlagen: "+e.message,"warn");}
+  }
+  async function handleUeEntscheiden(id,status,hinweis){
+    try{
+      await decideUeberstundenAntrag(id,status,hinweis);
+      await ladeUeAntraege();
+      const profs=await getAllProfiles();
+      setProfiles(profs);
+      const eigen=profs.find(p=>p.id===session.user.id);
+      if(eigen)setProfile(eigen);
+      notify(status==="confirmed"?"Überstunden übernommen.":"Antrag abgelehnt.");
+    }catch(e){notify("Fehlgeschlagen: "+e.message,"warn");}
+  }
+  async function handleUeZuruecknehmen(id){
+    try{
+      await deleteUeberstundenAntrag(id);
+      await ladeUeAntraege();
+      notify("Antrag zurückgezogen.");
+    }catch(e){notify("Fehlgeschlagen: "+e.message,"warn");}
+  }
+
   async function handleUpdateProfile(id,data){
     const vorher=profiles.find(x=>x.id===id)||null;
     const p=await updateProfile(id,data);
@@ -1182,8 +1217,8 @@ export default function App(){
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
-        {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
+        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
       </main>
@@ -1797,7 +1832,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
 }
 
 // ─── Einträge Admin ───────────────────────────────────────────────────────────
-function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern}){
+function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern,ueAntraege=[],onUeEntscheiden}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
   const [bereich,setBereich]=useState("alle");
@@ -1973,6 +2008,42 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
           ))}
         </div>
       ))}
+      {/* Offene Überstundenanträge */}
+      {(()=>{
+        const offen=(ueAntraege||[]).filter(a=>a.status==="pending"&&passt(a.user_id));
+        if(offen.length===0)return null;
+        return(
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏱ Überstundenanträge ({offen.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {offen.map(a=>{
+                const u=profiles.find(p=>p.id===a.user_id);
+                const std=(u?.wochenstunden||0)/(u?.arbeitstage_woche||5);
+                const tage=std>0?Math.round((a.stunden/std)*100)/100:null;
+                return(
+                  <div key={a.id} style={{background:"#fff",border:"1.5px solid #f0932b",borderRadius:10,padding:"10px 12px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                      <div style={{...S.legDot,background:u?.color||"#f0932b"}}/>
+                      <strong style={{fontSize:14,color:"#2d3a2e"}}>{u?.vorname} {u?.nachname}</strong>
+                      <span style={{fontSize:14,fontWeight:800,color:a.stunden<0?"#b45309":"#15803d"}}>
+                        {a.stunden>0?"+":""}{fmtStd(a.stunden)} Std.
+                      </span>
+                      {tage!==null&&<span style={{fontSize:12,color:"#5a6b4a"}}>≙ {fmtT(tage)} Tage · Konto {fmtT(u?.ueberstunden||0)} → {fmtT(Math.round(((u?.ueberstunden||0)+tage)*100)/100)}</span>}
+                    </div>
+                    {a.grund&&<div style={{fontSize:12,color:"#5a6b4a",marginBottom:6}}>„{a.grund}"</div>}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",padding:"6px 14px",fontWeight:700}}
+                        onClick={()=>onUeEntscheiden(a.id,"confirmed",null)}>✓ Genehmigen</button>
+                      <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",padding:"6px 14px",fontWeight:700}}
+                        onClick={()=>{const h=window.prompt("Grund für die Ablehnung (optional)");if(h!==null)onUeEntscheiden(a.id,"rejected",h);}}>✗ Ablehnen</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct allEntries={rich} profiles={profiles}/></>}
       {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#6a9e2f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest} allEntries={rich} profiles={profiles}/></>}
       {rich.length===0&&<div style={{color:"#475569",fontSize:14,padding:24,textAlign:"center"}}>Noch keine Einträge.</div>}
@@ -1981,13 +2052,31 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
 }
 
 // ─── Mein Urlaub ─────────────────────────────────────────────────────────────
-function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDelete}){
+function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDelete,ueAntraege=[],onUeAntrag,onUeZurueck}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
   const allEntries=user?.entries||[];
   // Alle Einträge für Summenberechnung, nur Jahr für Tabelle
   const entries=allEntries.filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
   const urlU=eDays(entries,"urlaub"),rstU=eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");
+  const[ueFormular,setUeFormular]=useState(false);
+  const[ueStunden,setUeStunden]=useState("");
+  const[ueGrund,setUeGrund]=useState("");
+  const[ueBusy,setUeBusy]=useState(false);
+  const[ueFehler,setUeFehler]=useState("");
+  const meineUeAntraege=(ueAntraege||[]).filter(a=>a.user_id===user?.id);
+  const stdTag=stdProTag(user);
+  async function ueAbsenden(){
+    const wert=parseFloat(String(ueStunden).replace(",","."));
+    if(!wert||isNaN(wert)){setUeFehler("Bitte eine Stundenzahl eingeben, z. B. 4 oder -2.");return;}
+    if(Math.abs(wert)>200){setUeFehler("Bitte einen realistischen Wert eingeben.");return;}
+    if(!stdTag){setUeFehler("Deine Arbeitszeit ist noch nicht hinterlegt. Bitte an die Leitung wenden.");return;}
+    setUeFehler("");setUeBusy(true);
+    try{
+      await onUeAntrag(wert,ueGrund);
+      setUeStunden("");setUeGrund("");setUeFormular(false);
+    }finally{setUeBusy(false);}
+  }
   const rem=(user?.urlaubstage||30)-(urlU+rstU);
   return(
     <div>
@@ -2078,6 +2167,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
             🖨 PDF / Drucken
           </button>
           <button style={{...S.addBtn,background:user?.color||"#5a8a1f"}} onClick={onAdd}>+ Urlaub beantragen</button>
+          <button style={{...S.canBtn,fontWeight:700}} onClick={()=>setUeFormular(v=>!v)}>⏱ Überstunden melden</button>
         </div>
       </div>
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
@@ -2089,6 +2179,63 @@ tr:nth-child(even) td{background:#f9fdf5;}
           </div>
         ))}
       </div>
+
+      {/* Überstunden melden */}
+      {ueFormular&&(
+        <div style={{background:"#fff",border:"1.5px solid #d5e8a0",borderRadius:12,padding:16,marginBottom:20,boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#2d3a2e",marginBottom:4}}>⏱ Änderung der Überstunden beantragen</div>
+          <div style={{fontSize:12,color:"#5a6b4a",marginBottom:12}}>
+            Positive Zahl für geleistete Mehrarbeit, negative Zahl für Abbau. Bei dir entspricht
+            ein Urlaubstag <strong>{fmtStd(stdTag)} Stunden</strong>.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"140px 1fr",gap:12,marginBottom:12}}>
+            <div><label style={S.lbl}>Stunden</label>
+              <input style={S.inp} type="text" inputMode="decimal" placeholder="z. B. 4 oder -2"
+                value={ueStunden} onChange={e=>setUeStunden(e.target.value.replace(/[^0-9,.\-]/g,""))}/>
+            </div>
+            <div><label style={S.lbl}>Grund (optional)</label>
+              <input style={S.inp} value={ueGrund} onChange={e=>setUeGrund(e.target.value)}
+                placeholder="z. B. Samstagsdienst 15.08."/>
+            </div>
+          </div>
+          {ueStunden&&!isNaN(parseFloat(String(ueStunden).replace(",",".")))&&stdTag>0&&(
+            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:6,padding:"7px 10px",marginBottom:12}}>
+              Entspricht {fmtT(Math.round((parseFloat(String(ueStunden).replace(",","."))/stdTag)*100)/100)} Urlaubstagen.
+            </div>
+          )}
+          {ueFehler&&<div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>⚠️ {ueFehler}</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button style={{...S.savBtn,opacity:ueBusy?0.6:1}} onClick={ueAbsenden} disabled={ueBusy}>
+              {ueBusy?"Wird gesendet…":"Antrag stellen"}
+            </button>
+            <button style={S.canBtn} onClick={()=>{setUeFormular(false);setUeFehler("");}}>Abbrechen</button>
+          </div>
+        </div>
+      )}
+
+      {/* Eigene Überstundenanträge */}
+      {meineUeAntraege.length>0&&(
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>⏱ Meine Überstundenanträge</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {meineUeAntraege.map(a=>(
+              <div key={a.id} style={{background:"#fff",border:"1px solid #d5e8a0",borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <strong style={{fontSize:14,color:a.stunden<0?"#b45309":"#2d3a2e"}}>
+                  {a.stunden>0?"+":""}{fmtStd(a.stunden)} Std.
+                </strong>
+                {a.grund&&<span style={{fontSize:12,color:"#5a6b4a"}}>{a.grund}</span>}
+                <span style={{marginLeft:"auto"}}><StBadge status={a.status}/></span>
+                {a.status==="pending"&&(
+                  <button style={{...S.icnBtn,color:"#f87171"}} title="Zurückziehen"
+                    onClick={()=>{if(window.confirm("Antrag zurückziehen?"))onUeZurueck(a.id);}}>🗑</button>
+                )}
+                {a.hinweis&&<div style={{fontSize:11,color:"#8aaa5f",width:"100%"}}>Hinweis: {a.hinweis}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead><tr style={{background:"#f8faf0"}}>{["Typ","Von","Bis","Tage","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
@@ -2286,6 +2433,7 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
         // Geschützte Felder gar nicht erst übermitteln
         delete daten.urlaubstage;
         delete daten.ueberstunden;
+        delete daten.color;
       }
       await onSave(user.id,daten);
       // Initialwerte aktualisieren
@@ -2389,6 +2537,15 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
         </div>
 
         <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
+          {!darfKontoAendern?(
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:34,height:34,borderRadius:8,background:form.color,
+                boxShadow:"0 1px 3px rgba(0,0,0,0.2)",flexShrink:0}}/>
+              <span style={{fontSize:12,color:"#8aaa5f"}}>
+                🔒 Deine Kalenderfarbe wird von der Leitung vergeben.
+              </span>
+            </div>
+          ):(
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             {PRESET_COLORS.map(c=>(
               <div key={c} onClick={()=>updateForm("color",c)}
@@ -2404,6 +2561,7 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
                 style={{width:32,height:32,border:"2px solid #d5e8a0",borderRadius:6,cursor:"pointer",padding:2}}/>
             </div>
           </div>
+          )}
         </div>
         {saved&&<div style={{padding:"8px 14px",background:"#dcfce7",color:"#15803d",borderRadius:8,fontSize:13,fontWeight:600,marginBottom:8,border:"1px solid #86efac"}}>✅ Profil erfolgreich gespeichert!</div>}
         <button style={{...S.savBtn,opacity:busy?0.6:1}} onClick={saveProfile} disabled={busy}>{busy?"Speichern…":"Profil speichern"}</button>
