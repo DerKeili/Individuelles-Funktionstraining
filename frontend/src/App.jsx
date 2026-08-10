@@ -299,6 +299,7 @@ function useSchmal(grenze=780){
   return schmal;
 }
 
+const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
@@ -402,7 +403,7 @@ export default function App(){
       }
       if(!gespeichert){setSession(null);setLoading(false);return;}
 
-      const sess=await mitWiederholung(()=>getSession(),2,6000);
+      const sess=await mitWiederholung(()=>getSession(),2,5000);
       if(!sess){setLoading(false);return;}
       if(sessionAbgelaufen(sess)){
         signOutHart();
@@ -413,13 +414,15 @@ export default function App(){
         return;
       }
       setSession(sess);
-      await mitWiederholung(()=>loadAll(sess.user.id),2,12000);
+      await mitWiederholung(()=>loadAll(sess.user.id),2,8000);
       setLoading(false);
     }catch(e){
       // Ohne gültige gespeicherte Sitzung ist die Anmeldemaske die richtige Antwort
       if(!sessionAusSpeicher()){
         setSession(null);
         setLoading(false);
+      }else if(neustartMitSchutz()){
+        // Seite wird neu geladen — dabei entsteht eine frische Verbindung
       }else{
         if(document.visibilityState==="visible")setDbError(true);
         setLoading(false);
@@ -462,33 +465,62 @@ export default function App(){
   useEffect(()=>{sessionRef.current=session;},[session]);
   useEffect(()=>{profileRef.current=profile;},[profile]);
 
+  // iOS/Safari hält nach dem Einfrieren der App die alte HTTPS-Verbindung offen,
+  // obwohl sie längst tot ist. Neue Anfragen reihen sich daran an und antworten nie.
+  // Nur ein vollständiger Seiten-Neustart baut eine frische Verbindung auf.
+  function neustartMitSchutz(){
+    try{
+      const letzter=Number(sessionStorage.getItem("up_letzter_neustart")||0);
+      if(Date.now()-letzter<30000)return false;      // Schutz vor Neustart-Schleifen
+      sessionStorage.setItem("up_letzter_neustart",String(Date.now()));
+    }catch(e){}
+    window.location.reload();
+    return true;
+  }
+
   useEffect(()=>{
     async function beiRueckkehr(){
       if(document.visibilityState!=="visible")return;
-      // Fehleranzeige? Dann still im Hintergrund einen neuen Versuch starten
-      if(dbErrorRef.current){await boot();return;}
       const sess=sessionRef.current;
-      // Noch nie fertig geladen (z.B. Verbindung eingefroren) → kompletter Neustart
-      if(!sess){if(ladeRef.current)await boot();return;}
+
       // Neuer Tag angebrochen, während die App im Hintergrund lag → abmelden
-      if(sessionAbgelaufen(sess)){
-        await signOut();
-        notify("Neuer Tag – bitte melde dich erneut an.","warn");
+      if(sess&&sessionAbgelaufen(sess)){
+        signOutHart();
+        try{signOut();}catch(e){}
+        window.location.reload();
         return;
       }
-      // Verbindung auffrischen; schlägt das fehl, sauber neu starten
+
+      // Kurzer Verbindungstest: antwortet die Datenbank noch?
+      let lebt=false;
       try{
-        await mitWiederholung(()=>getProfile(sess.user.id),2);
-        await loadEntries(istLeitung(profileRef.current),sess.user.id);
-      }catch(e){await boot();}
+        await mitZeitlimit(getProfile((sess||sessionAusSpeicher())?.user?.id),4000);
+        lebt=true;
+      }catch(e){lebt=false;}
+
+      if(!lebt){
+        // Tote Verbindung → Neustart der Seite, das ist der einzig verlässliche Weg
+        if(neustartMitSchutz())return;
+        await boot();
+        return;
+      }
+
+      // Verbindung steht: hängengebliebenen Start abschließen bzw. Daten auffrischen
+      if(!sess||ladeRef.current||dbErrorRef.current){await boot();return;}
+      try{await loadEntries(istLeitung(profileRef.current),sess.user.id);}catch(e){}
+    }
+    // Netzverbindung ist zurück → sofort neu verbinden
+    function beiOnline(){
+      if(dbErrorRef.current||ladeRef.current){bootRef.current=false;boot();}
+      else beiRueckkehr();
     }
     document.addEventListener("visibilitychange",beiRueckkehr);
     window.addEventListener("pageshow",beiRueckkehr);
-    window.addEventListener("online",beiRueckkehr);
+    window.addEventListener("online",beiOnline);
     return()=>{
       document.removeEventListener("visibilitychange",beiRueckkehr);
       window.removeEventListener("pageshow",beiRueckkehr);
-      window.removeEventListener("online",beiRueckkehr);
+      window.removeEventListener("online",beiOnline);
     };
   },[]);
 
@@ -508,12 +540,38 @@ export default function App(){
     return()=>{aktiv=false;};
   },[bundesland,year]);
 
+  // Fehlerbild: alle 5 Sekunden selbst einen neuen Versuch starten,
+  // damit sich die App nach einem Netzwechsel von allein wieder fängt
+  const [wiederVersuch,setWiederVersuch]=useState(0);
+  useEffect(()=>{
+    if(!dbError)return;
+    setWiederVersuch(0);
+    const t=setInterval(()=>{
+      setWiederVersuch(n=>n+1);
+      bootRef.current=false;
+      boot();
+    },5000);
+    return()=>clearInterval(t);
+  },[dbError]);
+
+  // Nach 8 Sekunden Ladezeit die Notausgänge einblenden
+  const [langesLaden,setLangesLaden]=useState(false);
+  useEffect(()=>{
+    if(!loading){setLangesLaden(false);return;}
+    const t=setTimeout(()=>setLangesLaden(true),8000);
+    return()=>clearTimeout(t);
+  },[loading]);
+
   // Wachhund: bleibt der Ladebildschirm länger als 20 Sekunden stehen, Fehlermeldung zeigen
   useEffect(()=>{
     if(!loading)return;
     const t=setTimeout(()=>{
-      if(ladeRef.current){setLoading(false);setDbError(true);bootRef.current=false;}
-    },12000);
+      if(!ladeRef.current)return;
+      bootRef.current=false;
+      // Erst versuchen, mit einer frischen Verbindung neu zu starten
+      if(neustartMitSchutz())return;
+      setLoading(false);setDbError(true);
+    },10000);
     return()=>clearTimeout(t);
   },[loading]);
 
@@ -677,6 +735,13 @@ export default function App(){
   // ── Entries CRUD ──────────────────────────────────────────────────
   async function handleCreateEntry(data){
     const{user_id,type,von,bis,note}=data;
+    // Doppelbuchung verhindern (zweite Sicherung, falls der Dialog umgangen wurde)
+    const schonVorhanden=entries.filter(e=>
+      e.user_id===user_id&&e.status!=="rejected"&&von<=e.bis&&bis>=e.von);
+    if(schonVorhanden.length>0){
+      notify("Für diesen Zeitraum besteht bereits ein Eintrag. Es wurde nichts gespeichert.","warn");
+      return;
+    }
     const zielProfil=profiles.find(p=>p.id===user_id)||null;
     // Wer den Zielmitarbeiter führen darf, trägt direkt bestätigt ein (eigener Urlaub nicht)
     const sofortBestaetigt=isAdmin||(user_id!==profile?.id&&canManage(profile,zielProfil));
@@ -807,26 +872,31 @@ export default function App(){
       <div style={{fontSize:44}}>⚠️</div>
       <div style={{color:"#f1f5f9",fontSize:17,fontWeight:700,textAlign:"center"}}>Datenbank nicht erreichbar</div>
       <div style={{color:"#94a3b8",fontSize:14,textAlign:"center",maxWidth:420,lineHeight:1.5}}>
-        Die Verbindung zur Datenbank ist fehlgeschlagen. Möglicherweise wurde die Datenbank wegen Inaktivität pausiert.
+        Die Verbindung ist unterbrochen. Das passiert meist kurz nach einem Wechsel zwischen WLAN und Mobilfunk.
+      </div>
+      <div style={{color:"#64748b",fontSize:13,textAlign:"center"}}>
+        Es wird automatisch weiter versucht{wiederVersuch>0?" ("+wiederVersuch+". Versuch)":""}…
       </div>
       <button onClick={()=>{setDbError(false);setLoading(true);window.location.reload();}} style={{marginTop:8,background:"#5a8a1f",color:"#fff",border:"none",borderRadius:10,padding:"12px 28px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
-        Erneut versuchen
+        Jetzt neu verbinden
       </button>
     </div>
   );
   if(loading)return(
     <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:20,textAlign:"center"}}>
       <div style={{fontSize:40}}>📅</div>
-      <div style={{color:"#64748b",fontSize:14}}>Verbinde mit Datenbank…</div>
-      {/* Notausgang: falls die Verbindung wider Erwarten doch hängt */}
-      <button onClick={()=>{bootRef.current=false;setLoading(false);setDbError(false);setTimeout(()=>boot(),50);}}
-        style={{marginTop:8,background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:13,cursor:"pointer"}}>
-        Neu verbinden
-      </button>
-      <button onClick={()=>{signOutHart();try{signOut();}catch(e){}window.location.reload();}}
-        style={{background:"none",border:"none",color:"#475569",fontSize:12,cursor:"pointer",textDecoration:"underline",padding:8}}>
-        Abmelden und neu starten
-      </button>
+      <div style={{color:"#64748b",fontSize:14}}>Verbindung wird hergestellt…</div>
+      {/* Notausgänge erst anbieten, wenn es wirklich zu lange dauert */}
+      {langesLaden&&(<>
+        <button onClick={()=>{bootRef.current=false;setLoading(false);setDbError(false);setTimeout(()=>boot(),50);}}
+          style={{marginTop:8,background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:13,cursor:"pointer"}}>
+          Neu verbinden
+        </button>
+        <button onClick={()=>{signOutHart();try{signOut();}catch(e){}window.location.reload();}}
+          style={{background:"none",border:"none",color:"#475569",fontSize:12,cursor:"pointer",textDecoration:"underline",padding:8}}>
+          Abmelden und neu starten
+        </button>
+      </>)}
     </div>
   );
   if(!session)return <LoginScreen onLogin={handleLogin}/>;
@@ -1040,7 +1110,7 @@ export default function App(){
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
@@ -1120,7 +1190,7 @@ export default function App(){
       )}
 
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
-        bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)}
+        bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)} zielUserId={modal.data.userId}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u)return null;
@@ -1135,7 +1205,7 @@ export default function App(){
           }
           setModal(null);
         }} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} allEntries={entries} currentUserId={modal.data.entry?.user_id} bereichVon={bereichVon} zielBereich={bereichVon(modal.data.entry?.user_id)} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} allEntries={entries} currentUserId={modal.data.entry?.user_id} bereichVon={bereichVon} zielBereich={bereichVon(modal.data.entry?.user_id)} zielUserId={modal.data.entry?.user_id} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
       {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={calEntries().filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
@@ -1612,22 +1682,86 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
 }
 
 // ─── Einträge Admin ───────────────────────────────────────────────────────────
-function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer}){
+function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
+  const [bereich,setBereich]=useState("alle");
+  const schmal=useSchmal();
+  // Gehört die Person zum gewählten Fachbereich?
+  const passt=uid=>{
+    if(!darfBereichFiltern||bereich==="alle")return true;
+    const pos=profiles.find(p=>p.id===uid)?.position;
+    if(bereich==="leitung")return posInfo(pos).scope==="alle";
+    return posInfo(pos).bereich===bereich;
+  };
   const rich=entries
-    .filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr))
+    .filter(e=>(e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr))&&passt(e.user_id))
     .map(e=>{
       const prof=profiles.find(p=>p.id===e.user_id)||e.profiles||{};
       return{...e,pName:`${prof.vorname||""} ${prof.nachname||""}`.trim(),pColor:prof.color||"#5a8a1f"};
     }).sort((a,b)=>a.von.localeCompare(b.von));
   const pend=rich.filter(e=>e.status==="pending");
   const rest=rich.filter(e=>e.status!=="pending");
-  function ETable({rows,showAct,allEntries=[],profiles=[],TLmap}){
+  // Kollisionen eines Eintrags mit anderen Personen ermitteln
+  function kollisionen(e,alle){
+    return alle.filter(o=>o.id!==e.id&&o.user_id!==e.user_id&&o.status==="confirmed"&&e.von<=o.bis&&e.bis>=o.von);
+  }
+  // Handy: Karten statt Tabelle — nichts wird abgeschnitten
+  function EKarten({rows,showAct,allEntries=[],profiles=[]}){
     if(!rows.length)return null;
     return(
-      <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+        {rows.map(e=>{
+          const kol=kollisionen(e,allEntries);
+          return(
+            <div key={e.id} style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",padding:12,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,flexWrap:"wrap"}}>
+                <div style={{...S.legDot,background:e.pColor}}/>
+                <strong style={{fontSize:14,color:"#2d3a2e"}}>{e.pName||"Unbekannt"}</strong>
+                <span style={{fontSize:11,background:ca(e.pColor,0.2),color:e.pColor,borderRadius:10,padding:"2px 8px"}}>{TL[e.type]||e.type}</span>
+                <div style={{marginLeft:"auto"}}><StBadge status={e.status}/></div>
+              </div>
+              <div style={{fontSize:13,color:"#2d3a2e",fontFamily:"monospace",marginBottom:4}}>
+                {fmtDE(e.von)} – {fmtDE(e.bis)}
+                <span style={{fontFamily:"inherit",fontWeight:700,color:"#8aaa5f",marginLeft:8}}>{fmtT(countWD(e.von,e.bis))} Tage</span>
+              </div>
+              <div style={{fontSize:11,color:"#8aaa5f",marginBottom:6}}>
+                Beantragt: {e.created_at?new Date(e.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
+              </div>
+              {kol.length===0
+                ?<div style={{fontSize:11,color:"#15803d",fontWeight:600,marginBottom:8}}>✅ Keine Kollision</div>
+                :<div style={{background:"#fff7ed",border:"1px solid #f0932b",borderRadius:6,padding:"5px 8px",marginBottom:8}}>
+                   <div style={{fontSize:11,fontWeight:700,color:"#92400e"}}>⚠ Kollision:</div>
+                   {kol.map((o,i)=>{
+                     const op=profiles.find(p=>p.id===o.user_id);
+                     return <div key={i} style={{fontSize:11,color:"#b45309"}}>• <strong>{op?.vorname||"?"}</strong> {fmtDE(o.von)}–{fmtDE(o.bis)}</div>;
+                   })}
+                 </div>}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {showAct&&e.status==="pending"&&(
+                  darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id))?(<>
+                    <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",fontSize:14,padding:"6px 14px"}} onClick={()=>onStatus(e.id,"confirmed")}>✓ Bestätigen</button>
+                    <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14,padding:"6px 14px"}} onClick={()=>onStatus(e.id,"rejected")}>✗ Ablehnen</button>
+                  </>):<span style={{fontSize:11,color:"#8aaa5f",alignSelf:"center"}}>wartet auf Leitung</span>
+                )}
+                <button style={{...S.icnBtn,padding:"6px 12px"}} onClick={()=>onEdit(e.user_id,e)}>✏️ Bearbeiten</button>
+                <button style={{...S.icnBtn,color:"#f87171",padding:"6px 12px"}} onClick={()=>{
+                  const note=window.prompt("Möchtest du dem Mitarbeiter eine Nachricht hinterlassen? (optional)");
+                  if(note!==null)onDelete(e.id,note);
+                }}>🗑</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  function ETable({rows,showAct,allEntries=[],profiles=[],TLmap}){
+    if(!rows.length)return null;
+    if(schmal)return <EKarten rows={rows} showAct={showAct} allEntries={allEntries} profiles={profiles}/>;
+    return(
+      <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",overflowX:"auto",WebkitOverflowScrolling:"touch",boxShadow:"0 1px 4px rgba(61,122,79,0.06)",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
           <thead><tr style={{background:"#f8faf0"}}>{["Mitarbeiter","Typ","Von","Bis","Tage","Beantragt am","Status",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(e=>(
@@ -1698,9 +1832,32 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
         <h2 style={S.pgT}>Einträge {year}</h2>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {profiles.map(u=><button key={u.id} style={{...S.addBtn,background:u.color||"#2563EB",fontSize:11,padding:"6px 10px"}} onClick={()=>onAdd(u.id)}>+ {u.vorname}</button>)}
+          {profiles.filter(u=>passt(u.id)).map(u=><button key={u.id} style={{...S.addBtn,background:u.color||"#2563EB",fontSize:11,padding:"6px 10px"}} onClick={()=>onAdd(u.id)}>+ {u.vorname}</button>)}
         </div>
       </div>
+      {/* Fachbereichs-Filter wie im Kalender */}
+      {darfBereichFiltern&&(schmal?(
+        <select value={bereich} onChange={e=>setBereich(e.target.value)}
+          style={{marginBottom:14,background:bereich==="alle"?"#f8faf0":"#e8f3d6",
+            border:"1.5px solid "+(bereich==="alle"?"#c8d890":"#7ab529"),borderRadius:14,
+            padding:"6px 12px",fontSize:13,fontWeight:700,color:"#4a6b0f",outline:"none",maxWidth:"100%"}}>
+          {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
+            <option key={k} value={k}>{k==="alle"?"Alle Bereiche":lbl.replace(/^[^ ]+ /,"")}</option>
+          ))}
+        </select>
+      ):(
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:14}}>
+          {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
+            <button key={k} onClick={()=>setBereich(k)} style={{
+              background:bereich===k?"#e8f3d6":"none",cursor:"pointer",
+              border:"1px solid "+(bereich===k?"#7ab529":"#cbd5e1"),
+              borderRadius:14,padding:"4px 10px",transition:"all .15s",
+              opacity:bereich===k?1:0.55,fontSize:11,fontWeight:600,
+              color:bereich===k?"#4a6b0f":"#94a3b8",whiteSpace:"nowrap",
+            }}>{lbl}</button>
+          ))}
+        </div>
+      ))}
       {pend.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:8}}>⏳ Ausstehend ({pend.length})</div><ETable rows={pend} showAct allEntries={rich} profiles={profiles}/></>}
       {rest.length>0&&<><div style={{fontSize:13,fontWeight:700,color:"#6a9e2f",marginBottom:8}}>📋 Alle ({rest.length})</div><ETable rows={rest} allEntries={rich} profiles={profiles}/></>}
       {rich.length===0&&<div style={{color:"#475569",fontSize:14,padding:24,textAlign:"center"}}>Noch keine Einträge.</div>}
@@ -2512,7 +2669,7 @@ Thomas Keilig`;
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||`${year}-01-01`);
   const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
@@ -2532,17 +2689,30 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const fehlend=pruefen?Math.max(0,Math.round((wd-restJahr)*2)/2):0;
   const ausgleichMoeglich=restVorjahr+restUeber;
   const gewaehlteReserve=quelle==="resturlaub"?restVorjahr:quelle==="ueberstunden"?restUeber:0;
-  const blockiert=fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend);
+  const blockiert=doppelt||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
 
   // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
   useEffect(()=>{setQuelle("");},[von,bis,type]);
+
+  // Eigene Doppelbuchung: überschneidet sich der Zeitraum mit einem eigenen Eintrag?
+  const eigeneUeberschneidung=(()=>{
+    const uid=zielUserId||currentUserId;
+    if(!uid||!von||!bis||bis<von)return [];
+    return (allEntries||[]).filter(e=>
+      e.user_id===uid&&
+      e.id!==initial?.id&&
+      e.status!=="rejected"&&
+      von<=e.bis&&bis>=e.von
+    );
+  })();
+  const doppelt=eigeneUeberschneidung.length>0;
 
   // Konflikt-Prüfung in Echtzeit
   useEffect(()=>{
     if(!von||!bis||bis<von||(allEntries||[]).length===0){setConflicts([]);return;}
     const cf=(allEntries||[]).filter(e=>
       e.status==="confirmed"&&
-      e.user_id!==currentUserId&&
+      e.user_id!==(zielUserId||currentUserId)&&
       e.id!==initial?.id&&
       von<=e.bis&&bis>=e.von&&
       // Nur derselbe Fachbereich zählt als Überschneidung
@@ -2553,6 +2723,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
 
   async function save(){
     if(!von||!bis||bis<von){alert("Bitte gültige Daten wählen.");return;}
+    if(doppelt){alert("Für diesen Zeitraum ist bereits ein Eintrag vorhanden.");return;}
     if(blockiert)return;
     if(conflicts.length>0&&!isAdmin){
       const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub im selben Fachbereich.\nTrotzdem beantragen?`);
@@ -2584,6 +2755,23 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             <span>Urlaubstage (ohne Feiertage): <strong style={{color:"#2d3a2e"}}>{fmtT(wd)}</strong></span>
             {pruefen&&<span>Verfügbar {new Date().getFullYear()}: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(restJahr)} T</strong></span>}
           </div>
+
+          {/* Bereits vorhandener eigener Eintrag im selben Zeitraum */}
+          {doppelt&&(
+            <div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:8,padding:"10px 12px",marginTop:4}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:4}}>
+                ⛔ Für diesen Zeitraum besteht bereits ein Eintrag
+              </div>
+              {eigeneUeberschneidung.slice(0,3).map((e,i)=>(
+                <div key={i} style={{fontSize:12,color:"#b91c1c"}}>
+                  • {TYP_LABEL[e.type]||e.type}: {fmtDE(e.von)} – {fmtDE(e.bis)} ({e.status==="pending"?"wartet auf Genehmigung":e.status==="confirmed"?"bestätigt":e.status})
+                </div>
+              ))}
+              <div style={{fontSize:11,color:"#b91c1c",marginTop:4}}>
+                Bitte einen anderen Zeitraum wählen oder den bestehenden Eintrag bearbeiten.
+              </div>
+            </div>
+          )}
 
           {/* Urlaubskonto reicht nicht */}
           {fehlend>0&&(
