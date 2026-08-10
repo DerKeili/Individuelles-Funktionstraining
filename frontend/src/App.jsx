@@ -2689,11 +2689,6 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const fehlend=pruefen?Math.max(0,Math.round((wd-restJahr)*2)/2):0;
   const ausgleichMoeglich=restVorjahr+restUeber;
   const gewaehlteReserve=quelle==="resturlaub"?restVorjahr:quelle==="ueberstunden"?restUeber:0;
-  const blockiert=doppelt||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
-
-  // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
-  useEffect(()=>{setQuelle("");},[von,bis,type]);
-
   // Eigene Doppelbuchung: überschneidet sich der Zeitraum mit einem eigenen Eintrag?
   const eigeneUeberschneidung=(()=>{
     const uid=zielUserId||currentUserId;
@@ -2706,6 +2701,11 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
     );
   })();
   const doppelt=eigeneUeberschneidung.length>0;
+
+  const blockiert=doppelt||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
+
+  // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
+  useEffect(()=>{setQuelle("");},[von,bis,type]);
 
   // Konflikt-Prüfung in Echtzeit
   useEffect(()=>{
