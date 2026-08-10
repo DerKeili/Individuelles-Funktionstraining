@@ -796,14 +796,26 @@ export default function App(){
   }
   async function handleUeEntscheiden(id,status,hinweis){
     try{
-      await decideUeberstundenAntrag(id,status,hinweis);
+      const erg=await decideUeberstundenAntrag(id,status,hinweis);
       await ladeUeAntraege();
       const profs=await getAllProfiles();
       setProfiles(profs);
       const eigen=profs.find(p=>p.id===session.user.id);
       if(eigen)setProfile(eigen);
-      notify(status==="confirmed"?"Überstunden übernommen.":"Antrag abgelehnt.");
-    }catch(e){notify("Fehlgeschlagen: "+e.message,"warn");}
+      setDashRefresh(x=>x+1);       // Dashboard-Karten neu berechnen
+      if(status==="confirmed"){
+        const neu=erg&&erg.ueberstunden_neu!==undefined?erg.ueberstunden_neu:null;
+        notify(neu!==null
+          ? "Überstunden übernommen – Konto steht jetzt auf "+fmtT(neu)+" Tagen."
+          : "Überstunden übernommen.");
+      }else{
+        notify("Antrag abgelehnt.");
+      }
+    }catch(e){
+      // Fehler deutlich und dauerhaft anzeigen, nicht nur kurz einblenden
+      window.alert("Der Antrag konnte nicht verbucht werden:\n\n"+e.message);
+      notify("Nicht verbucht: "+e.message,"warn");
+    }
   }
   async function handleUeZuruecknehmen(id){
     try{
