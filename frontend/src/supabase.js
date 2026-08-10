@@ -99,8 +99,11 @@ export async function createUeberstundenAntrag(userId, stunden, grund) {
 }
 
 export async function getUeberstundenAntraege() {
+  // Kein eingebettetes Profil laden: die Tabelle verweist zweimal auf profiles
+  // (user_id und entschieden_von), was die API nicht auflösen kann.
+  // Die Namen holt sich die App aus der ohnehin geladenen Profilliste.
   const { data, error } = await supabase.from("ueberstunden_antraege")
-    .select("*, profiles(vorname,nachname,color,position,geschlecht,wochenstunden,arbeitstage_woche)")
+    .select("*")
     .order("created_at", { ascending: false });
   if (error) throw new Error(friendlyUserError(error.message));
   return data || [];

@@ -766,6 +766,7 @@ export default function App(){
   };
   // Überstundenanträge laden (RLS liefert nur Eigene bzw. die geführten Mitarbeiter)
   const prevUeRef=useRef(-1);
+  const ueFehlerGemeldet=useRef(false);
   async function ladeUeAntraege(){
     try{
       const liste=await getUeberstundenAntraege();
@@ -776,7 +777,13 @@ export default function App(){
         notify(`🔔 ${offen-prevUeRef.current} neuer Überstundenantrag eingegangen!`,"warn");
       }
       prevUeRef.current=offen;
-    }catch(e){/* Tabelle evtl. noch nicht angelegt */}
+    }catch(e){
+      // Fehler nicht mehr verschlucken — sonst bleibt die Liste unerklärt leer
+      if(!ueFehlerGemeldet.current){
+        ueFehlerGemeldet.current=true;
+        notify("Überstundenanträge konnten nicht geladen werden: "+e.message,"warn");
+      }
+    }
   }
   useEffect(()=>{if(session&&profile)ladeUeAntraege();},[session,profile]);
 
