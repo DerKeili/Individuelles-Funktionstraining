@@ -729,10 +729,41 @@ export default function App(){
   }
 
   // ── Profile CRUD ──────────────────────────────────────────────────
+  // Felder, über deren Änderung der Mitarbeiter informiert wird
+  const MELDEFELDER={
+    urlaubstage:"Urlaubstage pro Jahr",
+    ueberstunden:"Überstunden",
+    resturlaub:"Resturlaub aus dem Vorjahr",
+    wochenstunden:"Wochenarbeitszeit",
+    arbeitstage_woche:"Arbeitstage pro Woche",
+    position:"Position",
+    role:"Berechtigung",
+  };
   async function handleUpdateProfile(id,data){
+    const vorher=profiles.find(x=>x.id===id)||null;
     const p=await updateProfile(id,data);
     setProfiles(prev=>prev.map(x=>x.id===id?p:x));
     if(id===profile?.id)setProfile(p);
+
+    // Hat eine Leitung fremde Stammdaten geändert? Dann den Mitarbeiter informieren.
+    if(vorher&&id!==profile?.id){
+      const geaendert=Object.keys(MELDEFELDER)
+        .filter(f=>f in data&&String(vorher[f]??"")!==String(p[f]??""))
+        .map(f=>{
+          const alt=f==="position"?posLabel(vorher[f],p.geschlecht)
+                   :f==="role"?rolleLabel(vorher[f]):String(vorher[f]??"—");
+          const neu=f==="position"?posLabel(p[f],p.geschlecht)
+                   :f==="role"?rolleLabel(p[f]):String(p[f]??"—");
+          return MELDEFELDER[f]+": "+alt+" → "+neu;
+        });
+      if(geaendert.length>0){
+        const wer=[profile?.vorname,profile?.nachname].filter(Boolean).join(" ")||"Die Leitung";
+        try{
+          await createNotification(id,
+            wer+" hat deine Stammdaten geändert — "+geaendert.join(" · "),"info");
+        }catch(e){/* Benachrichtigung ist kein Grund, das Speichern scheitern zu lassen */}
+      }
+    }
     notify("Gespeichert.");
   }
   async function handleCreateUser(data){
@@ -2172,6 +2203,9 @@ function FerView({year,state,stateName}){
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
 function ProfView({user,onSave,onChangePw,onDirtyChange}){
+  // Nur Administratoren, Geschäfts- und Praxisleitung sowie Teamleitungen dürfen
+  // Urlaubskonto und Überstunden pflegen — im eigenen Profil niemand ohne Leitungsrolle.
+  const darfKontoAendern=istLeitung(user);
   // Zahlenfelder als String speichern → kein "0" Prefix Problem
   const[form,setForm]=useState({
     vorname:user?.vorname||"",
@@ -2223,11 +2257,16 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
   async function doSave(){
     setBusy(true);
     try{
-      await onSave(user.id,{
-        ...form,
-        urlaubstage:parseInt(form.urlaubstage)||0,
-        ueberstunden:parseInt(form.ueberstunden)||0,
-      });
+      const daten={...form};
+      if(darfKontoAendern){
+        daten.urlaubstage=parseInt(form.urlaubstage)||0;
+        daten.ueberstunden=parseInt(form.ueberstunden)||0;
+      }else{
+        // Geschützte Felder gar nicht erst übermitteln
+        delete daten.urlaubstage;
+        delete daten.ueberstunden;
+      }
+      await onSave(user.id,daten);
       // Initialwerte aktualisieren
       initialRef.current={...form};
       onDirtyChange?.(false);
@@ -2291,21 +2330,30 @@ function ProfView({user,onSave,onChangePw,onDirtyChange}){
             <input style={S.inp} type="date" value={form.geburtsdatum}
               onChange={e=>updateForm("geburtsdatum",e.target.value)}/>
           </div>
-          {/* Zeile 3: Urlaubstage + Überstunden */}
+          {/* Zeile 3: Urlaubstage + Überstunden — nur von der Leitung änderbar */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
-              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+              <input style={darfKontoAendern?S.inp:{...S.inp,background:"#f1f5f0",color:"#5a6b4a"}}
+                type="text" inputMode="numeric" pattern="[0-9]*"
+                readOnly={!darfKontoAendern}
                 value={form.urlaubstage}
-                onChange={e=>updateForm("urlaubstage",e.target.value.replace(/[^0-9]/g,""))}
-                onFocus={e=>e.target.select()}/>
+                onChange={e=>darfKontoAendern&&updateForm("urlaubstage",e.target.value.replace(/[^0-9]/g,""))}
+                onFocus={e=>darfKontoAendern&&e.target.select()}/>
             </div>
             <div><label style={S.lbl}>Überstunden (Tage)</label>
-              <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
+              <input style={darfKontoAendern?S.inp:{...S.inp,background:"#f1f5f0",color:"#5a6b4a"}}
+                type="text" inputMode="numeric" pattern="[0-9]*"
+                readOnly={!darfKontoAendern}
                 value={form.ueberstunden}
-                onChange={e=>updateForm("ueberstunden",e.target.value.replace(/[^0-9]/g,""))}
-                onFocus={e=>e.target.select()}/>
+                onChange={e=>darfKontoAendern&&updateForm("ueberstunden",e.target.value.replace(/[^0-9]/g,""))}
+                onFocus={e=>darfKontoAendern&&e.target.select()}/>
             </div>
           </div>
+          {!darfKontoAendern&&(
+            <div style={{fontSize:11,color:"#8aaa5f",marginTop:-4}}>
+              🔒 Urlaubstage und Überstunden werden von der Leitung gepflegt. Bei Rückfragen bitte an die zuständige Leitung wenden.
+            </div>
+          )}
         </div>
 
         <div style={{marginBottom:16}}><label style={S.lbl}>Farbe</label>
