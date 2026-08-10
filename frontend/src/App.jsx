@@ -265,6 +265,7 @@ function istLeitung(p){
 // ─── Arbeitszeit ─────────────────────────────────────────────────────────────
 const WOCHENTAGE_AUSWAHL=[1,2,3,4,5,6];
 const stdProTag=u=>{
+  if(u?.pauschal)return 0;                       // keine feste Tagesstundenzahl
   const w=Number(u?.wochenstunden)||0,t=Number(u?.arbeitstage_woche)||0;
   return (w>0&&t>0)?Math.round((w/t)*100)/100:0;
 };
@@ -342,6 +343,8 @@ function tageBisGeburtstag(iso){
   if(next<heute)next=new Date(heute.getFullYear()+1,m-1,d);
   return Math.round((next-heute)/86400000);
 }
+// Pauschalkraft: keine feste Wochenstundenzahl, kein fester Urlaubsanspruch
+const istPauschal=u=>!!u?.pauschal;
 const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
@@ -1333,7 +1336,7 @@ export default function App(){
         bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)} zielUserId={modal.data.userId}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
-          if(!u)return null;
+          if(!u||istPauschal(u))return null;   // Pauschalkräfte haben kein Kontingent
           const js=String(year);
           const ej=(u.entries||[]).filter(e=>(e.von?.startsWith(js)||e.bis?.startsWith(js))&&e.status!=="rejected");
           return{urlaubstage:u.urlaubstage||30,resturlaub:u.resturlaub||0,ueberstunden:u.ueberstunden||0,stdProTag:stdProTag(u),
@@ -1750,14 +1753,21 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
                   {isAdmin&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}
                 </div>
               </div>
+              {istPauschal(u)?(
+                <div style={{background:"#fff7ed",border:"1px solid #fcd9b0",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#92400e"}}>Pauschalkraft</div>
+                  <div style={{fontSize:12,color:"#b45309"}}>{fmtT(total)} freie Tage in {year} eingetragen · kein festes Kontingent</div>
+                </div>
+              ):(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
                 <StatBox label="Urlaub" val={total} total={u.urlaubstage||30} color={u.color||"#2563EB"}/>
                 <StatBox label="Überstunden" val={fmtT(ueU)} total={u.ueberstunden||0} color={lighten(u.color||"#2563EB",0.3)}/>
               </div>
+              )}
               <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:entries.length>0?10:0}}>
-                {rstU>0&&<Chip text={`↩ Resturlaub: ${fmtT(rstU)}T`} bg={ca(u.color||"#2563EB",0.12)} col={lighten(u.color||"#2563EB",0.2)}/>}
-                <Chip text={rem>=0?`✅ Noch: ${fmtT(rem)}T`:`⚠ Überzogen: ${fmtT(Math.abs(rem))}T`} bg={rem<0?"rgba(248,113,113,0.15)":"rgba(100,116,139,0.12)"} col={rem<0?"#f87171":"#94a3b8"}/>
-                {(u.ueberstunden||0)>0&&<Chip text={ueRem>=0?`⏱ ÜS-Rest: ${fmtT(ueRem)}T`:`⏱ ÜS+: ${fmtT(Math.abs(ueRem))}T`} bg="rgba(139,92,246,0.12)" col="#a78bfa"/>}
+                {!istPauschal(u)&&rstU>0&&<Chip text={`↩ Resturlaub: ${fmtT(rstU)}T`} bg={ca(u.color||"#2563EB",0.12)} col={lighten(u.color||"#2563EB",0.2)}/>}
+                {!istPauschal(u)&&<Chip text={rem>=0?`✅ Noch: ${fmtT(rem)}T`:`⚠ Überzogen: ${fmtT(Math.abs(rem))}T`} bg={rem<0?"rgba(248,113,113,0.15)":"rgba(100,116,139,0.12)"} col={rem<0?"#f87171":"#94a3b8"}/>}
+                {!istPauschal(u)&&(u.ueberstunden||0)>0&&<Chip text={ueRem>=0?`⏱ ÜS-Rest: ${fmtT(ueRem)}T`:`⏱ ÜS+: ${fmtT(Math.abs(ueRem))}T`} bg="rgba(139,92,246,0.12)" col="#a78bfa"/>}
                 {pend>0&&<Chip text={`⏳ ${pend} ausstehend`} bg="rgba(251,191,36,0.12)" col="#fbbf24"/>}
               </div>
               {entries.length>0&&(
@@ -1817,9 +1827,13 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
               </div>
               <div style={{fontSize:11,color:"#8aaa5f",wordBreak:"break-all",marginBottom:8}}>{u.email}</div>
               <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:"#2d3a2e",marginBottom:10}}>
-                <span>🏖 Urlaub: <strong>{fmtT(urlT)} / {u.urlaubstage||30}</strong></span>
-                <span>⏱ Überstd.: <strong>{fmtT(ueT)} / {u.ueberstunden||0}</strong></span>
-                <span>🕐 {fmtStd(u.wochenstunden||0)} Std. / {u.arbeitstage_woche||5} Tage</span>
+                {istPauschal(u)?(
+                  <span style={{color:"#92400e",fontWeight:600}}>Pauschalkraft · {fmtT(urlT)} freie Tage eingetragen</span>
+                ):(<>
+                  <span>🏖 Urlaub: <strong>{fmtT(urlT)} / {u.urlaubstage||30}</strong></span>
+                  <span>⏱ Überstd.: <strong>{fmtT(ueT)} / {u.ueberstunden||0}</strong></span>
+                  <span>🕐 {fmtStd(u.wochenstunden||0)} Std. / {u.arbeitstage_woche||5} Tage</span>
+                </>)}
               </div>
               {pend>0&&<div style={{marginBottom:10}}><Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/></div>}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -1850,8 +1864,8 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
                   <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{...S.av,width:30,height:30,fontSize:13,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>{u.vorname} {u.nachname}</div></td>
                   <td style={{...S.td,fontSize:12,color:"#5a6b4a"}}>{posLabel(u.position,u.geschlecht)}<div style={{fontSize:11,color:"#8aaa5f"}}>{u.email}</div></td>
                   <td style={S.td}><span style={{fontSize:11,background:u.role==="admin"?"#fef3c7":"#e0f2fe",color:u.role==="admin"?"#92400e":"#0369a1",padding:"2px 8px",borderRadius:10,fontWeight:600}}>{rolleLabel(u.role)}</span></td>
-                  <td style={S.td}>{fmtT(urlT)} / {u.urlaubstage||30} T</td>
-                  <td style={S.td}>{fmtT(ueT)} / {u.ueberstunden||0} T</td>
+                  <td style={S.td}>{istPauschal(u)?<span style={{fontSize:11,color:"#92400e",background:"#fff7ed",borderRadius:10,padding:"2px 8px",fontWeight:600}}>Pauschal</span>:<>{fmtT(urlT)} / {u.urlaubstage||30} T</>}</td>
+                  <td style={S.td}>{istPauschal(u)?"—":<>{fmtT(ueT)} / {u.ueberstunden||0} T</>}</td>
                   <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/>}</td>
                   <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
                 </tr>
@@ -2200,10 +2214,19 @@ tr:nth-child(even) td{background:#f9fdf5;}
             🖨 PDF / Drucken
           </button>
           <button style={{...S.addBtn,background:user?.color||"#5a8a1f"}} onClick={onAdd}>+ Urlaub beantragen</button>
-          <button style={{...S.canBtn,fontWeight:700}} onClick={()=>setUeFormular(v=>!v)}>⏱ Überstunden melden</button>
+          {!istPauschal(user)&&<button style={{...S.canBtn,fontWeight:700}} onClick={()=>setUeFormular(v=>!v)}>⏱ Überstunden melden</button>}
         </div>
       </div>
-      <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+      {istPauschal(user)&&(
+        <div style={{background:"#fff7ed",border:"1.5px solid #fcd9b0",borderRadius:10,padding:"12px 14px",marginBottom:20}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#92400e",marginBottom:2}}>Pauschalkraft</div>
+          <div style={{fontSize:12,color:"#b45309"}}>
+            Für dich wird kein festes Urlaubskontingent geführt. Freie Tage kannst du normal eintragen —
+            sie werden gezählt, aber nicht gegen einen Anspruch gerechnet. Bislang eingetragen: <strong>{fmtT(urlU+rstU)} Tage</strong> in {year}.
+          </div>
+        </div>
+      )}
+      {!istPauschal(user)&&<div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[["📅","Urlaubstage",user?.urlaubstage||30,false],["✈️","Genommen",urlU+rstU,false],["✅","Verbleibend",rem,rem<0],...(rstU>0?[["↩","Resturlaub",rstU,false]]:[]),...((user?.ueberstunden||0)>0?[["⏱","Überstunden",`${fmtT(ueU)}/${user.ueberstunden}`,false]]:[]),["⏱️","Std./Tag",fmtStd(stdProTag(user)),false]].map(([ic,lb,vl,warn])=>(
           <div key={lb} style={{background:"#fff",borderRadius:10,padding:"12px 16px",border:`1.5px solid ${warn?"#fca5a5":"#d4e6d8"}`,minWidth:90,boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
             <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
@@ -2211,7 +2234,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
             <div style={{fontSize:11,color:"#5a6b4a",fontWeight:600}}>{lb}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* Überstunden melden */}
       {ueFormular&&(
@@ -2247,7 +2270,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
       )}
 
       {/* Eigene Überstundenanträge — immer sichtbar, damit der Stand klar ist */}
-      <div style={{marginBottom:20}}>
+      {!istPauschal(user)&&<div style={{marginBottom:20}}>
         <div style={{fontSize:13,fontWeight:700,color:"#2d3a2e",marginBottom:8}}>
           ⏱ Meine Überstundenanträge
           {meineUeAntraege.filter(a=>a.status==="pending").length>0&&
@@ -2289,7 +2312,7 @@ tr:nth-child(even) td{background:#f9fdf5;}
             })}
           </div>
         )}
-      </div>
+      </div>}
 
       <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflow:"hidden",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -2689,6 +2712,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
     geschlecht:initial?.geschlecht||"d",
+    pauschal:initial?.pauschal??false,
     wochenstunden:initial?.wochenstunden??40,
     arbeitstage_woche:initial?.arbeitstage_woche??5,
     color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
@@ -2732,7 +2756,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
     try{
-      await onSave({...f,email:f.email.trim().toLowerCase(),wochenstunden:parseFloat(f.wochenstunden)||0,arbeitstage_woche:parseInt(f.arbeitstage_woche)||5,urlaubstage:parseInt(f.urlaubstage)||0,ueberstunden:parseInt(f.ueberstunden)||0,resturlaub:parseInt(f.resturlaub)||0,geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
+      await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
     }catch(e){
       setSaveErr(e.message||"Speichern fehlgeschlagen.");
     }finally{setBusy(false);}
@@ -2806,21 +2830,35 @@ Thomas Keilig`;
                 </select>
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <div><label style={S.lbl}>Wochenarbeitszeit (Std.)</label>
-                <input style={S.inp} type="number" min="0" max="60" step="0.5" value={f.wochenstunden}
-                  onChange={e=>setF(p=>({...p,wochenstunden:e.target.value}))}/>
+            <label style={{display:"flex",alignItems:"center",gap:9,fontSize:13,color:"#2d3a2e",
+              background:f.pauschal?"#f7fce8":"#f8faf0",border:"1.5px solid "+(f.pauschal?"#7ab529":"#d5e8a0"),
+              borderRadius:8,padding:"10px 12px",cursor:"pointer",fontWeight:600}}>
+              <input type="checkbox" checked={!!f.pauschal}
+                onChange={e=>setF(p=>({...p,pauschal:e.target.checked}))} style={{width:17,height:17}}/>
+              <span>Pauschalkraft — keine feste Stundenzahl, kein fester Urlaubsanspruch</span>
+            </label>
+            {!f.pauschal?(<>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div><label style={S.lbl}>Wochenarbeitszeit (Std.)</label>
+                  <input style={S.inp} type="number" min="0" max="60" step="0.5" value={f.wochenstunden}
+                    onChange={e=>setF(p=>({...p,wochenstunden:e.target.value}))}/>
+                </div>
+                <div><label style={S.lbl}>Arbeitstage pro Woche</label>
+                  <select style={S.inp} value={f.arbeitstage_woche} onChange={e=>setF(p=>({...p,arbeitstage_woche:e.target.value}))}>
+                    {WOCHENTAGE_AUSWAHL.map(n=><option key={n} value={n}>{n} {n===1?"Tag":"Tage"}</option>)}
+                  </select>
+                </div>
               </div>
-              <div><label style={S.lbl}>Arbeitstage pro Woche</label>
-                <select style={S.inp} value={f.arbeitstage_woche} onChange={e=>setF(p=>({...p,arbeitstage_woche:e.target.value}))}>
-                  {WOCHENTAGE_AUSWAHL.map(n=><option key={n} value={n}>{n} {n===1?"Tag":"Tage"}</option>)}
-                </select>
+              <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
+                ⏱ Ein Urlaubstag entspricht <strong>{fmtStd(stdProTag(f))} Stunden</strong>
+                {f.ueberstunden>0&&<> · Überstundenkonto: {fmtT(f.ueberstunden)} T ≈ {fmtStd(tageInStd(f.ueberstunden,f))} Std.</>}
               </div>
-            </div>
-            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
-              ⏱ Ein Urlaubstag entspricht <strong>{fmtStd(stdProTag(f))} Stunden</strong>
-              {f.ueberstunden>0&&<> · Überstundenkonto: {fmtT(f.ueberstunden)} T ≈ {fmtStd(tageInStd(f.ueberstunden,f))} Std.</>}
-            </div>
+            </>):(
+              <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",borderRadius:6,padding:"8px 10px",border:"1px solid #fcd9b0"}}>
+                Für Pauschalkräfte werden Arbeitszeit, Urlaubsanspruch und Überstundenkonto nicht geführt.
+                Freie Tage lassen sich weiterhin im Kalender eintragen — sie werden nur gezählt, nicht gegen ein Kontingent gerechnet.
+              </div>
+            )}
             <div style={{fontSize:12,color:"#5a6b4a",background:"#f8faf0",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
               {(()=>{
                 const sc=posInfo(f.position).scope,br=posInfo(f.position).bereich;
@@ -2860,6 +2898,7 @@ Thomas Keilig`;
                 )}
               </div>
             )}
+            {!f.pauschal&&(<>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={f.urlaubstage}
@@ -2878,6 +2917,7 @@ Thomas Keilig`;
                 onFocus={e=>e.target.select()}
                 onChange={e=>setF(p=>({...p,resturlaub:e.target.value.replace(/[^0-9]/g,"")}))}/>
             </div>
+            </>)}
             {isAdmin&&<div><label style={S.lbl}>Berechtigung</label>
               <select style={S.inp} value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
                 {ROLLEN.map(([k,l])=><option key={k} value={k}>{l}</option>)}
