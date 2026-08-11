@@ -63,7 +63,7 @@ const plusTage=(dt,n)=>{const d=new Date(dt);d.setDate(d.getDate()+n);return d;}
 // Bundeslandspezifische Feiertage
 const FT_REGIONAL={
   dreikoenige:["BW","BY","ST"],
-  fronleichnam:["BW","BY","HE","NW","RP","SL","SN"],
+  fronleichnam:["BW","BY","HE","NW","RP","SL"],   // in SN nur einzelne Gemeinden → je Mitarbeiter
   mariaeHimmelfahrt:["BY","SL"],
   reformation:["BB","HB","HH","MV","NI","SN","ST","SH","TH"],
   allerheiligen:["BW","BY","NW","RP","SL"],
@@ -97,6 +97,14 @@ function berechneFeiertage(state,y){
   if(hat("allerheiligen"))     setze(new Date(y,10,1),"Allerheiligen");
   if(hat("bussUndBettag"))     setze(bussBettag(y),"Buß- und Bettag");
   return ft;
+}
+// Fronleichnam = Ostersonntag + 60 Tage. In Sachsen nur in einzelnen Gemeinden
+// des Landkreises Bautzen gesetzlicher Feiertag — deshalb je Mitarbeiter wählbar.
+const FRONLEICHNAM_WAHL_BL=["SN","TH"];
+const FL_CACHE={};
+function fronleichnamISO(y){
+  if(!FL_CACHE[y])FL_CACHE[y]=isoOf(plusTage(osterSonntag(y),60));
+  return FL_CACHE[y];
 }
 const FT_CACHE={};
 // Hinterlegte Jahre nutzen; für alle anderen Jahre die Feiertage berechnen.
@@ -192,26 +200,29 @@ let AKT_BL="SN";
 const HALBE_TAGE=["12-24","12-31"];
 const isoOf=dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
 // Wieviel Urlaub kostet ein einzelner Tag? 0 = Wochenende/Feiertag, 0.5 = halber Tag, 1 = voll
-function tagesFaktor(dt){
+function tagesFaktor(dt,u){
   const w=dt.getDay();
   if(w===0||w===6)return 0;                       // Wochenende
   const iso=isoOf(dt);
   if(HALBE_TAGE.includes(iso.slice(5)))return 0.5; // Heiligabend / Silvester
-  if(isFT(iso,AKT_BL,dt.getFullYear()))return 0;   // gesetzlicher Feiertag
+  const jahr=dt.getFullYear();
+  if(isFT(iso,AKT_BL,jahr))return 0;               // gesetzlicher Feiertag
+  // Fronleichnam nur, wenn für diesen Mitarbeiter hinterlegt
+  if(u&&u.fronleichnam&&FRONLEICHNAM_WAHL_BL.includes(AKT_BL)&&iso===fronleichnamISO(jahr))return 0;
   return 1;
 }
-function countWD(von,bis){
+function countWD(von,bis,u){
   if(!von||!bis)return 0;
   const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);
   let s=new Date(y1,m1-1,d1),e=new Date(y2,m2-1,d2);
   if(e<s)return 0;
   let c=0,cur=new Date(s);
-  while(cur<=e){c+=tagesFaktor(cur);cur.setDate(cur.getDate()+1);}
+  while(cur<=e){c+=tagesFaktor(cur,u);cur.setDate(cur.getDate()+1);}
   return Math.round(c*2)/2;
 }
 // Zahl für die Anzeige: 4 → "4", 4.5 → "4,5"
 const fmtT=n=>{const v=Number(n)||0;return Number.isInteger(v)?String(v):String(v).replace(".",",");};
-function eDays(entries=[],type){return entries.filter(e=>e.type===type).reduce((s,e)=>s+countWD(e.von||e.von,e.bis||e.bis),0);}
+function eDays(entries=[],type,u){return entries.filter(e=>e.type===type).reduce((s,e)=>s+countWD(e.von,e.bis,u),0);}
 
 // ─── Geschlecht, Positionen & Berechtigungen ─────────────────────────────────
 const GESCHLECHTER=[["w","weiblich"],["m","männlich"],["d","divers"]];
@@ -304,7 +315,7 @@ function useSchmal(grenze=780){
 }
 
 // Welche Feiertage und halben Tage liegen im gewählten Zeitraum?
-function besondereTage(von,bis){
+function besondereTage(von,bis,u){
   if(!von||!bis||bis<von)return [];
   const[y1,m1,d1]=von.split("-").map(Number),[y2,m2,d2]=bis.split("-").map(Number);
   let cur=new Date(y1,m1-1,d1);const ende=new Date(y2,m2-1,d2);
@@ -317,6 +328,8 @@ function besondereTage(von,bis){
       else{
         const ft=isFT(iso,AKT_BL,cur.getFullYear());
         if(ft)liste.push({iso,name:ft,halb:false});
+        else if(u&&u.fronleichnam&&FRONLEICHNAM_WAHL_BL.includes(AKT_BL)&&iso===fronleichnamISO(cur.getFullYear()))
+          liste.push({iso,name:"Fronleichnam",halb:false});
       }
     }
     cur.setDate(cur.getDate()+1);
@@ -1163,11 +1176,11 @@ export default function App(){
     const k=kontoFuer(u,jahr);
     const js=String(jahr);
     const ej=(u?.entries||[]).filter(e=>(e.von?.startsWith(js)||e.bis?.startsWith(js))&&e.status!=="rejected");
-    const genutztUrlaub=eDays(ej,"urlaub"), genutztRest=eDays(ej,"resturlaub");
+    const genutztUrlaub=eDays(ej,"urlaub",u), genutztRest=eDays(ej,"resturlaub",u);
     const anspruch=k.urlaubstage+k.resturlaub;
     const verplant=genutztUrlaub+genutztRest;
     return{...k,anspruch,verplant,genutztUrlaub,genutztRest,
-           genutztUeber:eDays(ej,"ueberstunden"),
+           genutztUeber:eDays(ej,"ueberstunden",u),
            anteil:anspruch>0?verplant/anspruch:1};
   }
 
@@ -1316,7 +1329,7 @@ export default function App(){
         <FristBanner planJahr={planJahr} tick={fristTick}
           eigene={profile&&!istPauschal(profile)?planungFuer(pwu.find(u=>u.id===session.user.id)||profile,planJahr):null}
           offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<MINDEST_ANTEIL):[]}
-          istLeitung={isLeitung}
+          istLeitung={isLeitung} darfBereichFiltern={darfBereichFiltern}
           onPlanen={()=>{if(year!==planJahr)setYear(planJahr);setView(isAdmin?"eintraege":"meinurlaub");}}/>
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
@@ -1406,6 +1419,7 @@ export default function App(){
 
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
         bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)} zielUserId={modal.data.userId}
+        zielUser={pwu.find(u=>u.id===modal.data.userId)}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u||istPauschal(u))return null;   // Pauschalkräfte haben kein Kontingent
@@ -1420,7 +1434,7 @@ export default function App(){
           }
           setModal(null);
         }} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} allEntries={entries} currentUserId={modal.data.entry?.user_id} bereichVon={bereichVon} zielBereich={bereichVon(modal.data.entry?.user_id)} zielUserId={modal.data.entry?.user_id} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editEntry"&&<EntryModal title="Eintrag bearbeiten" year={year} isAdmin={isAdmin} initial={modal.data.entry} allEntries={entries} currentUserId={modal.data.entry?.user_id} bereichVon={bereichVon} zielBereich={bereichVon(modal.data.entry?.user_id)} zielUserId={modal.data.entry?.user_id} zielUser={pwu.find(u=>u.id===modal.data.entry?.user_id)} onSave={async d=>{await handleUpdateEntry(modal.data.entry.id,Array.isArray(d)?d[0]:d);setModal(null);}} onClose={()=>setModal(null)}/>}
 
       {/* PRINT */}
       {(printMode==="kalender"||printMode==="kalender_window")&&<PrintKal year={year} entries={calEntries().filter(e=>e.status==="confirmed")} profiles={profiles} state={bundesland} stateName={stateName} useNewWindow={printMode==="kalender_window"} onClose={()=>setPrintMode(null)}/>}
@@ -1690,7 +1704,7 @@ function printUserPDF(u, year) {
   if(!w) return;
   const yStr=String(year);const uEntries = [...(u.entries||[])].filter(e=>e.type!=="ueberstunden"&&(e.von?.startsWith(yStr)||e.bis?.startsWith(yStr))).sort((a,b)=>a.von.localeCompare(b.von));
   const yEntries=(u.entries||[]).filter(e=>e.von?.startsWith(String(year))||e.bis?.startsWith(String(year)));
-  const urlT = eDays(yEntries,"urlaub"), rstT = eDays(yEntries,"resturlaub");
+  const urlT = eDays(yEntries,"urlaub",u), rstT = eDays(yEntries,"resturlaub",u);
   const rem = (u.urlaubstage||30) - (urlT+rstT);
   const TL = {urlaub:"Urlaub",resturlaub:"Resturlaub"};
   const fde = s => s ? new Date(s).toLocaleDateString("de-DE") : "";
@@ -1810,7 +1824,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
         {users.map(u=>{
           const yearStr=String(year);
           const entries=(u.entries||[]).filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
-          const urlU=eDays(entries,"urlaub"),rstU=eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");
+          const urlU=eDays(entries,"urlaub",user),rstU=eDays(entries,"resturlaub",user),ueU=eDays(entries,"ueberstunden",user);
           const total=urlU+rstU,rem=(u.urlaubstage||30)-total,ueRem=(u.ueberstunden||0)-ueU;
           const pend=entries.filter(e=>e.status==="pending").length;
           return(
@@ -1868,20 +1882,27 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
 function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{fmtT(val)}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
 // ─── Countdown und Fortschritt der Jahresplanung ─────────────────────────────
-function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick}){
+function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,darfBereichFiltern}){
   const rest=fristRest(planJahr);
   const erfuellt=eigene?eigene.anteil>=MINDEST_ANTEIL:true;
   const abgelaufen=!rest;
+  const [bereich,setBereich]=useState("alle");
+  const gefilterteLeute=offeneLeute.filter(u=>{
+    if(!darfBereichFiltern||bereich==="alle")return true;
+    if(bereich==="leitung")return posInfo(u.position).scope==="alle";
+    return posInfo(u.position).bereich===bereich;
+  });
   // Nach Fristablauf und bei erfüllter Planung nichts anzeigen, wenn auch im Team alles passt
   if(abgelaufen&&erfuellt&&offeneLeute.length===0)return null;
   const dringend=rest&&rest.tage<=30;
-  const farbe=erfuellt&&offeneLeute.length===0?"#7ab529":(abgelaufen||dringend?"#dc2626":"#f0932b");
-  const hg    =erfuellt&&offeneLeute.length===0?"#f7fce8":(abgelaufen||dringend?"#fef2f2":"#fff7ed");
+  // Farbe der eigenen Planung — unabhängig vom Stand im Team
+  const farbe=erfuellt?"#5a8a1f":(abgelaufen||dringend?"#dc2626":"#f0932b");
+  const hg   =erfuellt?"#f7fce8":(abgelaufen||dringend?"#fef2f2":"#fff7ed");
   const prozent=eigene?Math.min(100,Math.round(eigene.anteil*100)):100;
   return(
     <div style={{background:hg,border:"1.5px solid "+farbe,borderRadius:12,padding:"14px 16px",marginBottom:20}}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:eigene?10:0}}>
-        <span style={{fontSize:20}}>{erfuellt&&offeneLeute.length===0?"✅":abgelaufen?"⛔":"🗓"}</span>
+        <span style={{fontSize:20}}>{erfuellt?"✅":abgelaufen?"⛔":"🗓"}</span>
         <div style={{fontWeight:800,fontSize:15,color:farbe}}>
           Urlaubsplanung {planJahr}
         </div>
@@ -1903,9 +1924,13 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick}){
               ? ` — es fehlen noch ${fmtT(Math.max(0,Math.ceil((eigene.anspruch*MINDEST_ANTEIL-eigene.verplant)*2)/2))} Tage.`
               : "."}
           </div>
-          <div style={{height:9,background:"rgba(0,0,0,0.06)",borderRadius:5,overflow:"hidden",marginBottom:10,position:"relative"}}>
-            <div style={{width:prozent+"%",height:"100%",background:farbe,borderRadius:5,transition:"width .3s"}}/>
-            <div style={{position:"absolute",left:Math.round(MINDEST_ANTEIL*100)+"%",top:-2,bottom:-2,width:2,background:"#2d3a2e",opacity:0.5}}/>
+          {/* Balken mit Verlauf: rot → orange → gelb → grün, gefüllt bis zum erreichten Anteil */}
+          <div style={{height:11,borderRadius:6,marginBottom:10,position:"relative",overflow:"hidden",
+            background:"linear-gradient(90deg,#dc2626 0%,#f0932b 40%,#facc15 65%,#7ab529 88%,#4d7c0f 100%)"}}>
+            <div style={{position:"absolute",left:prozent+"%",right:0,top:0,bottom:0,
+              background:"#e6ebdc",transition:"left .35s ease"}}/>
+            <div style={{position:"absolute",left:"calc("+Math.round(MINDEST_ANTEIL*100)+"% - 1px)",top:0,bottom:0,
+              width:2,background:"#2d3a2e",opacity:0.55}} title="Mindestens 90 % müssen verplant sein"/>
           </div>
           {!erfuellt&&(
             <button onClick={onPlanen} style={{...S.savBtn,background:farbe,padding:"8px 18px",fontSize:13}}>
@@ -1917,16 +1942,35 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick}){
 
       {istLeitung&&offeneLeute.length>0&&(
         <div style={{marginTop:eigene?12:8,paddingTop:10,borderTop:"1px solid rgba(0,0,0,0.08)"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#92400e",marginBottom:5}}>
-            Noch offen im Team ({offeneLeute.length}):
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#92400e"}}>
+              Noch offen im Team ({gefilterteLeute.length}{bereich!=="alle"?" von "+offeneLeute.length:""}):
+            </div>
+            {darfBereichFiltern&&(
+              <select value={bereich} onChange={e=>setBereich(e.target.value)}
+                style={{marginLeft:"auto",background:bereich==="alle"?"#fff":"#fef3c7",
+                  border:"1px solid #fcd9b0",borderRadius:12,padding:"3px 9px",
+                  fontSize:11,fontWeight:700,color:"#92400e",outline:"none"}}>
+                {[["alle","Alle Bereiche"],["leitung","Leitung"],["physio","Physiotherapie"],
+                  ["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],
+                  ["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,l])=>(
+                  <option key={k} value={k}>{l}</option>
+                ))}
+              </select>
+            )}
           </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {offeneLeute.map(u=>(
-              <span key={u.id} style={{fontSize:11,background:"#fff",border:"1px solid #fcd9b0",borderRadius:10,padding:"3px 9px",color:"#92400e",fontWeight:600}}>
-                {u.vorname} {u.nachname}
-              </span>
-            ))}
-          </div>
+          {gefilterteLeute.length===0?(
+            <div style={{fontSize:11,color:"#4a6b0f"}}>✅ In diesem Bereich haben alle ausreichend geplant.</div>
+          ):(
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {gefilterteLeute.map(u=>(
+                <span key={u.id} style={{fontSize:11,background:"#fff",border:"1px solid #fcd9b0",borderRadius:10,padding:"3px 9px",color:"#92400e",fontWeight:600}}>
+                  {u.vorname} {u.nachname}
+                  <span style={{opacity:0.7,fontWeight:400}}> · {BEREICH_NAME[posInfo(u.position).bereich]||"Leitung"}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1940,7 +1984,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
   const schmal=useSchmal();
   const zahlen=u=>{
     const e=u.entries||[];
-    return{urlT:eDays(e,"urlaub")+eDays(e,"resturlaub"),ueT:eDays(e,"ueberstunden"),
+    return{urlT:eDays(e,"urlaub",u)+eDays(e,"resturlaub",u),ueT:eDays(e,"ueberstunden",u),
            pend:e.filter(x=>x.status==="pending").length};
   };
   // Handy: Karten statt Tabelle
@@ -1996,7 +2040,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
           <tbody>
             {users.map(u=>{
               const entries=u.entries||[];
-              const urlT=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueT=eDays(entries,"ueberstunden"),pend=entries.filter(e=>e.status==="pending").length;
+              const urlT=eDays(entries,"urlaub",u)+eDays(entries,"resturlaub",u),ueT=eDays(entries,"ueberstunden",u),pend=entries.filter(e=>e.status==="pending").length;
               return(
                 <tr key={u.id} style={{borderBottom:"1px solid #edf5ee"}}>
                   <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{...S.av,width:30,height:30,fontSize:13,background:u.color||"#2563EB"}}>{u.vorname?.[0]||"?"}</div>{u.vorname} {u.nachname}</div></td>
@@ -2243,7 +2287,7 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDe
   const allEntries=user?.entries||[];
   // Alle Einträge für Summenberechnung, nur Jahr für Tabelle
   const entries=allEntries.filter(e=>e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr));
-  const urlU=eDays(entries,"urlaub"),rstU=eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");
+  const urlU=eDays(entries,"urlaub",user),rstU=eDays(entries,"resturlaub",user),ueU=eDays(entries,"ueberstunden",user);
   const[ueFormular,setUeFormular]=useState(false);
   const[ueStunden,setUeStunden]=useState("");
   const[ueGrund,setUeGrund]=useState("");
@@ -2271,7 +2315,7 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDe
           <button onClick={()=>{
             const w=window.open("about:blank","_urlaubsdruck_"+Date.now(),"width=900,height=700");
             const sorted=[...allEntries].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
-            const urlT=eDays(allEntries,"urlaub"),rstT=eDays(allEntries,"resturlaub");
+            const urlT=eDays(allEntries,"urlaub",user),rstT=eDays(allEntries,"resturlaub",user);
             const rem=(user?.urlaubstage||30)-(urlT+rstT);
             const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
             const fde=s=>s?new Date(s).toLocaleDateString("de-DE"):"";
@@ -2851,6 +2895,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
     geschlecht:initial?.geschlecht||"d",
     pauschal:initial?.pauschal??false,
+    fronleichnam:initial?.fronleichnam??false,
     wochenstunden:initial?.wochenstunden??40,
     arbeitstage_woche:initial?.arbeitstage_woche??5,
     color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
@@ -2894,7 +2939,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
     if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
     try{
-      await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
+      await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,fronleichnam:!!f.fronleichnam,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
     }catch(e){
       setSaveErr(e.message||"Speichern fehlgeschlagen.");
     }finally{setBusy(false);}
@@ -2974,6 +3019,18 @@ Thomas Keilig`;
               <input type="checkbox" checked={!!f.pauschal}
                 onChange={e=>setF(p=>({...p,pauschal:e.target.checked}))} style={{width:17,height:17}}/>
               <span>Pauschalkraft — keine feste Stundenzahl, kein fester Urlaubsanspruch</span>
+            </label>
+            <label style={{display:"flex",alignItems:"flex-start",gap:9,fontSize:13,color:"#2d3a2e",
+              background:f.fronleichnam?"#f7fce8":"#f8faf0",border:"1.5px solid "+(f.fronleichnam?"#7ab529":"#d5e8a0"),
+              borderRadius:8,padding:"10px 12px",cursor:"pointer",fontWeight:600}}>
+              <input type="checkbox" checked={!!f.fronleichnam}
+                onChange={e=>setF(p=>({...p,fronleichnam:e.target.checked}))} style={{width:17,height:17,marginTop:2,flexShrink:0}}/>
+              <span>Fronleichnam ist ein Feiertag
+                <div style={{fontWeight:400,fontSize:11,color:"#5a6b4a",marginTop:2}}>
+                  In Sachsen nur in einzelnen Gemeinden des Landkreises Bautzen gesetzlicher Feiertag.
+                  Ist der Haken gesetzt, kostet Fronleichnam für diese Person keinen Urlaubstag.
+                </div>
+              </span>
             </label>
             {!f.pauschal?(<>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -3217,7 +3274,7 @@ Thomas Keilig`;
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId,zielUser}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||`${year}-01-01`);
   const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
@@ -3225,8 +3282,8 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const[busy,setBusy]=useState(false);
   const[conflicts,setConflicts]=useState([]);
   const[quelle,setQuelle]=useState("");        // Ausgleich für fehlende Urlaubstage
-  const wd=countWD(von,bis);
-  const feiertageImZeitraum=besondereTage(von,bis);
+  const wd=countWD(von,bis,zielUser);
+  const feiertageImZeitraum=besondereTage(von,bis,zielUser);
 
   // ── Urlaubskonto prüfen ──────────────────────────────────────────
   const k=kontingent||null;
@@ -3588,7 +3645,7 @@ function PrintList({year,users,stateName,onClose}){
     <div className="pt" style={ps.wrap}>
       <button className="no-print" onClick={()=>onClose?.()} style={{position:"fixed",top:8,right:12,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer",zIndex:9999}}>✕ Schließen</button>
       <div style={{fontSize:16,fontWeight:700,textAlign:"center",marginBottom:12}}>Urlaubsliste {year} · {stateName}</div>
-      {users.map(u=>{const entries=u.entries||[];const urlU=eDays(entries,"urlaub")+eDays(entries,"resturlaub"),ueU=eDays(entries,"ueberstunden");return(
+      {users.map(u=>{const entries=u.entries||[];const urlU=eDays(entries,"urlaub",u)+eDays(entries,"resturlaub",u),ueU=eDays(entries,"ueberstunden",u);return(
         <div key={u.id} style={{marginBottom:14}}>
           <div style={{fontWeight:700,fontSize:12,padding:"5px 8px",background:"#f1f5f9",borderLeft:`3px solid ${u.color||"#2563EB"}`,marginBottom:4,display:"flex",justifyContent:"space-between"}}><span>{u.vorname} {u.nachname}</span><span style={{fontWeight:400,fontSize:10,color:"#555"}}>Urlaub: {fmtT(urlU)}/{u.urlaubstage||30} · ÜS: {fmtT(ueU)}/{u.ueberstunden||0}</span></div>
           <table style={ps.t}><thead><tr>{["Typ","Von","Bis","Tage","Status"].map(h=><th key={h} style={ps.th}>{h}</th>)}</tr></thead>
