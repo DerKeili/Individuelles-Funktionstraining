@@ -1902,7 +1902,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
                   <div style={{fontSize:12,fontWeight:700,color:"#92400e"}}>Pauschalkraft</div>
                   <div style={{fontSize:12,color:"#b45309"}}>{fmtT(total)} freie Tage in {year} eingetragen · kein festes Kontingent</div>
                 </div>
-              ):(
+              ):(<>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:6}}>
                 <StatBox label="Urlaub" val={total} total={u.urlaubstage||30} color={u.color||"#2563EB"}/>
                 <StatBox label="Überstunden" val={fmtT(ueU)} total={u.ueberstunden||0} color={lighten(u.color||"#2563EB",0.3)}/>
@@ -1913,7 +1913,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
                 {ueU>0&&<> &nbsp;|&nbsp; ⏱ zusätzlich <strong>{fmtT(ueU)} T</strong> aus Überstunden
                   {stdProTag(u)>0&&<> ({fmtStd(ueU*stdProTag(u))} Std.)</>}</>}
               </div>
-              )}
+              </>)}
               <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:entries.length>0?10:0}}>
                 {!istPauschal(u)&&rstU>0&&<Chip text={`↩ Resturlaub: ${fmtT(rstU)}T`} bg={ca(u.color||"#2563EB",0.12)} col={lighten(u.color||"#2563EB",0.2)}/>}
                 {!istPauschal(u)&&<Chip text={rem>=0?`✅ Noch: ${fmtT(rem)}T`:`⚠ Überzogen: ${fmtT(Math.abs(rem))}T`} bg={rem<0?"rgba(248,113,113,0.15)":"rgba(100,116,139,0.12)"} col={rem<0?"#f87171":"#94a3b8"}/>}
