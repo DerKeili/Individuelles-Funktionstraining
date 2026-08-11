@@ -8,6 +8,7 @@ import {
   getPasswordResetRequests, dismissResetRequest,
   createNotification, getMyNotifications, markNotificationRead,
   clearMustChangePassword,
+  getJahreskonten, setJahreskonto, uebertragBerechnen,
   createUeberstundenAntrag, getUeberstundenAntraege,
   decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
@@ -343,6 +344,20 @@ function tageBisGeburtstag(iso){
   if(next<heute)next=new Date(heute.getFullYear()+1,m-1,d);
   return Math.round((next-heute)/86400000);
 }
+// ─── Abgabefrist für die Jahresurlaubsplanung ────────────────────────────────
+const FRIST_MONAT=10, FRIST_TAG=30;      // 30. November (Monat 0-basiert)
+const MINDEST_ANTEIL=0.9;                // 90 % des Anspruchs müssen verplant sein
+// Frist für die Planung des Jahres "planJahr" – sie liegt im Jahr davor
+const fristFuer=planJahr=>new Date(planJahr-1,FRIST_MONAT,FRIST_TAG,23,59,59);
+function fristRest(planJahr){
+  const ms=fristFuer(planJahr).getTime()-Date.now();
+  if(ms<=0)return null;
+  const tage=Math.floor(ms/86400000);
+  const stunden=Math.floor((ms%86400000)/3600000);
+  const minuten=Math.floor((ms%3600000)/60000);
+  return{ms,tage,stunden,minuten};
+}
+
 // Pauschalkraft: keine feste Wochenstundenzahl, kein fester Urlaubsanspruch
 const istPauschal=u=>!!u?.pauschal;
 const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
@@ -365,6 +380,13 @@ export default function App(){
   const [showFeiertage,setShowFeiertage]=useState(true);
   const [kalBereich,setKalBereich]=useState("alle");   // Bereichsfilter im Kalender (nur Leitung)
   const [ueAntraege,setUeAntraege]=useState([]);       // Überstundenanträge
+  const [jahreskonten,setJahreskonten]=useState([]);   // Urlaubsanspruch je Jahr
+  const [fristTick,setFristTick]=useState(0);          // aktualisiert den Countdown
+  useEffect(()=>{const t=setInterval(()=>setFristTick(x=>x+1),60000);return()=>clearInterval(t);},[]);
+  // Für welches Jahr muss geplant werden? Bis zum 30.11. für das Folgejahr,
+  // danach ist die Planung des Folgejahres abgeschlossen.
+  const heuteJetzt=new Date();
+  const planJahr=heuteJetzt.getFullYear()+1;
   const schmal=useSchmal();                            // Handy-Ansicht?
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
@@ -788,7 +810,10 @@ export default function App(){
       }
     }
   }
-  useEffect(()=>{if(session&&profile)ladeUeAntraege();},[session,profile]);
+  async function ladeJahreskonten(){
+    try{setJahreskonten(await getJahreskonten());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
+  }
+  useEffect(()=>{if(session&&profile){ladeUeAntraege();ladeJahreskonten();}},[session,profile]);
 
   async function handleUeAntrag(stunden,grund){
     try{
@@ -828,8 +853,15 @@ export default function App(){
     }catch(e){notify("Fehlgeschlagen: "+e.message,"warn");}
   }
 
-  async function handleUpdateProfile(id,data){
+  async function handleUpdateProfile(id,data,jahr){
     const vorher=profiles.find(x=>x.id===id)||null;
+    // Urlaubsanspruch und Resturlaub gehören ins Jahreskonto, nicht ins Profil
+    if(jahr&&!data.pauschal&&(data.urlaubstage!==undefined||data.resturlaub!==undefined)){
+      try{
+        await setJahreskonto(id,jahr,Number(data.urlaubstage)||0,Number(data.resturlaub)||0);
+        await ladeJahreskonten();
+      }catch(e){notify("Jahreskonto nicht gespeichert: "+e.message,"warn");}
+    }
     const p=await updateProfile(id,data);
     setProfiles(prev=>prev.map(x=>x.id===id?p:x));
     if(id===profile?.id)setProfile(p);
@@ -998,10 +1030,18 @@ export default function App(){
   }
   // Profiles mit ihren Einträgen zusammenführen
   function profilesWithEntries(){
-    return profiles.map(p=>({
-      ...p,
-      entries:entries.filter(e=>e.user_id===p.id)
-    }));
+    // Urlaubsanspruch und Resturlaub aus dem Jahreskonto des angezeigten Jahres
+    // überschreiben die alten Profilwerte — so rechnen alle Ansichten jahresgenau.
+    return profiles.map(p=>{
+      const k=kontoFuer(p,year);
+      return{
+        ...p,
+        urlaubstage:istPauschal(p)?0:k.urlaubstage,
+        resturlaub:istPauschal(p)?0:k.resturlaub,
+        kontoEigen:k.eigen,
+        entries:entries.filter(e=>e.user_id===p.id)
+      };
+    });
   }
 
   const stateName=BUNDESLAENDER.find(b=>b[0]===bundesland)?.[1]||"";
@@ -1109,6 +1149,28 @@ export default function App(){
   const pwu=profilesWithEntries();
   // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
   const meineLeute=pwu.filter(u=>canManage(profile,u));
+  // Urlaubsanspruch einer Person für ein bestimmtes Jahr
+  function kontoFuer(u,jahr){
+    if(!u)return{urlaubstage:0,resturlaub:0,eigen:false};
+    if(istPauschal(u))return{urlaubstage:0,resturlaub:0,eigen:true};
+    const k=jahreskonten.find(x=>x.user_id===u.id&&Number(x.jahr)===Number(jahr));
+    if(k)return{urlaubstage:Number(k.urlaubstage)||0,resturlaub:Number(k.resturlaub)||0,eigen:true};
+    // Rückfall auf die alten Profilwerte, solange kein Jahreskonto besteht
+    return{urlaubstage:Number(u.urlaubstage)||0,resturlaub:Number(u.resturlaub)||0,eigen:false};
+  }
+  // Verbrauch und Planungsstand einer Person in einem Jahr
+  function planungFuer(u,jahr){
+    const k=kontoFuer(u,jahr);
+    const js=String(jahr);
+    const ej=(u?.entries||[]).filter(e=>(e.von?.startsWith(js)||e.bis?.startsWith(js))&&e.status!=="rejected");
+    const genutztUrlaub=eDays(ej,"urlaub"), genutztRest=eDays(ej,"resturlaub");
+    const anspruch=k.urlaubstage+k.resturlaub;
+    const verplant=genutztUrlaub+genutztRest;
+    return{...k,anspruch,verplant,genutztUrlaub,genutztRest,
+           genutztUeber:eDays(ej,"ueberstunden"),
+           anteil:anspruch>0?verplant/anspruch:1};
+  }
+
   // Fachbereich einer Person — Grundlage für Überschneidungen
   const bereichVon=id=>posInfo(profiles.find(p=>p.id===id)?.position).bereich;
 
@@ -1250,6 +1312,12 @@ export default function App(){
 
       {/* MAIN */}
       <main style={S.main} onClick={()=>setTooltip(null)}>
+        {/* Abgabefrist für die Jahresplanung */}
+        <FristBanner planJahr={planJahr} tick={fristTick}
+          eigene={profile&&!istPauschal(profile)?planungFuer(pwu.find(u=>u.id===session.user.id)||profile,planJahr):null}
+          offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<MINDEST_ANTEIL):[]}
+          istLeitung={isLeitung}
+          onPlanen={()=>{if(year!==planJahr)setYear(planJahr);setView(isAdmin?"eintraege":"meinurlaub");}}/>
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
@@ -1300,7 +1368,11 @@ export default function App(){
         onClose={()=>setModal(null)}
       />}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" initial={modal.data} isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)} onSave={async d=>{await handleUpdateProfile(d.id,d);setModal(null);notify("Gespeichert.");}} onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
+      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" jahrHinweis={year}
+        initial={{...modal.data,...(istPauschal(modal.data)?{}:{urlaubstage:kontoFuer(modal.data,year).urlaubstage,resturlaub:kontoFuer(modal.data,year).resturlaub})}}
+        isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)}
+        onSave={async d=>{await handleUpdateProfile(modal.data.id,{...d,id:modal.data.id},year);setModal(null);}}
+        onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
       {/* Änderungsantrag für bestätigte Einträge */}
       {modal?.type==="changeRequest"&&(
         <ChangeRequestModal
@@ -1337,10 +1409,10 @@ export default function App(){
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u||istPauschal(u))return null;   // Pauschalkräfte haben kein Kontingent
-          const js=String(year);
-          const ej=(u.entries||[]).filter(e=>(e.von?.startsWith(js)||e.bis?.startsWith(js))&&e.status!=="rejected");
-          return{urlaubstage:u.urlaubstage||30,resturlaub:u.resturlaub||0,ueberstunden:u.ueberstunden||0,stdProTag:stdProTag(u),
-                 genutztUrlaub:eDays(ej,"urlaub"),genutztRest:eDays(ej,"resturlaub"),genutztUeber:eDays(ej,"ueberstunden")};
+          const pl=planungFuer(u,year);
+          return{urlaubstage:pl.urlaubstage,resturlaub:pl.resturlaub,
+                 ueberstunden:Number(u.ueberstunden)||0,stdProTag:stdProTag(u),
+                 genutztUrlaub:pl.genutztUrlaub,genutztRest:pl.genutztRest,genutztUeber:pl.genutztUeber};
         })()}
         onSave={async pakete=>{
           for(const d of (Array.isArray(pakete)?pakete:[pakete])){
@@ -1795,6 +1867,72 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
 }
 function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{fmtT(val)}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
+// ─── Countdown und Fortschritt der Jahresplanung ─────────────────────────────
+function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick}){
+  const rest=fristRest(planJahr);
+  const erfuellt=eigene?eigene.anteil>=MINDEST_ANTEIL:true;
+  const abgelaufen=!rest;
+  // Nach Fristablauf und bei erfüllter Planung nichts anzeigen, wenn auch im Team alles passt
+  if(abgelaufen&&erfuellt&&offeneLeute.length===0)return null;
+  const dringend=rest&&rest.tage<=30;
+  const farbe=erfuellt&&offeneLeute.length===0?"#7ab529":(abgelaufen||dringend?"#dc2626":"#f0932b");
+  const hg    =erfuellt&&offeneLeute.length===0?"#f7fce8":(abgelaufen||dringend?"#fef2f2":"#fff7ed");
+  const prozent=eigene?Math.min(100,Math.round(eigene.anteil*100)):100;
+  return(
+    <div style={{background:hg,border:"1.5px solid "+farbe,borderRadius:12,padding:"14px 16px",marginBottom:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:eigene?10:0}}>
+        <span style={{fontSize:20}}>{erfuellt&&offeneLeute.length===0?"✅":abgelaufen?"⛔":"🗓"}</span>
+        <div style={{fontWeight:800,fontSize:15,color:farbe}}>
+          Urlaubsplanung {planJahr}
+        </div>
+        <div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:farbe,fontVariantNumeric:"tabular-nums"}}>
+          {abgelaufen
+            ? "Frist am 30.11. abgelaufen"
+            : rest.tage>0
+              ? `noch ${rest.tage} ${rest.tage===1?"Tag":"Tage"} · ${rest.stunden} Std.`
+              : `noch ${rest.stunden} Std. ${rest.minuten} Min.`}
+        </div>
+      </div>
+
+      {eigene&&(
+        <>
+          <div style={{fontSize:13,color:"#5a6b4a",marginBottom:8}}>
+            Bis zum <strong>30.11.{planJahr-1}</strong> müssen mindestens {Math.round(MINDEST_ANTEIL*100)} % des
+            Jahresurlaubs verplant sein. Du hast <strong>{fmtT(eigene.verplant)}</strong> von {fmtT(eigene.anspruch)} Tagen
+            eingetragen ({prozent} %){eigene.anspruch>0&&eigene.anteil<MINDEST_ANTEIL
+              ? ` — es fehlen noch ${fmtT(Math.max(0,Math.ceil((eigene.anspruch*MINDEST_ANTEIL-eigene.verplant)*2)/2))} Tage.`
+              : "."}
+          </div>
+          <div style={{height:9,background:"rgba(0,0,0,0.06)",borderRadius:5,overflow:"hidden",marginBottom:10,position:"relative"}}>
+            <div style={{width:prozent+"%",height:"100%",background:farbe,borderRadius:5,transition:"width .3s"}}/>
+            <div style={{position:"absolute",left:Math.round(MINDEST_ANTEIL*100)+"%",top:-2,bottom:-2,width:2,background:"#2d3a2e",opacity:0.5}}/>
+          </div>
+          {!erfuellt&&(
+            <button onClick={onPlanen} style={{...S.savBtn,background:farbe,padding:"8px 18px",fontSize:13}}>
+              Jetzt Urlaub für {planJahr} planen
+            </button>
+          )}
+        </>
+      )}
+
+      {istLeitung&&offeneLeute.length>0&&(
+        <div style={{marginTop:eigene?12:8,paddingTop:10,borderTop:"1px solid rgba(0,0,0,0.08)"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#92400e",marginBottom:5}}>
+            Noch offen im Team ({offeneLeute.length}):
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {offeneLeute.map(u=>(
+              <span key={u.id} style={{fontSize:11,background:"#fff",border:"1px solid #fcd9b0",borderRadius:10,padding:"3px 9px",color:"#92400e",fontWeight:600}}>
+                {u.vorname} {u.nachname}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
@@ -2707,7 +2845,7 @@ function CopyLoginButton({email, password, vorname}){
 }
 
 // ─── User Modal ───────────────────────────────────────────────────────────────
-function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]}){
+function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[],jahrHinweis=new Date().getFullYear()}){
   const[f,setF]=useState({
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
@@ -2899,6 +3037,10 @@ Thomas Keilig`;
               </div>
             )}
             {!f.pauschal&&(<>
+            <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",border:"1px solid #fcd9b0",borderRadius:6,padding:"7px 10px"}}>
+              💡 Urlaubsanspruch und Resturlaub gelten ab sofort <strong>je Kalenderjahr</strong>.
+              Die Werte hier betreffen das im Kopf gewählte Jahr <strong>{jahrHinweis}</strong>.
+            </div>
             <div><label style={S.lbl}>Urlaubstage / Jahr</label>
               <input style={S.inp} type="text" inputMode="numeric" pattern="[0-9]*"
                 value={f.urlaubstage}
@@ -3093,9 +3235,13 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const restUeber  =k?Math.max(0,Math.round((k.ueberstunden-k.genutztUeber)*2)/2):0;
   // Nur beim Neuanlegen von normalem Urlaub prüfen
   const pruefen=!!k&&!initial&&type==="urlaub"&&wd>0;
-  const fehlend=pruefen?Math.max(0,Math.round((wd-restJahr)*2)/2):0;
-  const ausgleichMoeglich=restVorjahr+restUeber;
-  const gewaehlteReserve=quelle==="resturlaub"?restVorjahr:quelle==="ueberstunden"?restUeber:0;
+  // Resturlaub wird zuerst verbraucht, deshalb zählt er zum verfügbaren Vorrat
+  const verfuegbar=Math.round((restJahr+restVorjahr)*2)/2;
+  const fehlend=pruefen?Math.max(0,Math.round((wd-verfuegbar)*2)/2):0;
+  // Überstundenabbau ist jederzeit möglich und belastet den Urlaubsanspruch nicht
+  const ueberzogen=(!initial&&type==="ueberstunden"&&k)?Math.max(0,Math.round((wd-restUeber)*2)/2):0;
+  const ausgleichMoeglich=restUeber;
+  const gewaehlteReserve=quelle==="ueberstunden"?restUeber:0;
   // Eigene Doppelbuchung: überschneidet sich der Zeitraum mit einem eigenen Eintrag?
   const eigeneUeberschneidung=(()=>{
     const uid=zielUserId||currentUserId;
@@ -3109,7 +3255,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   })();
   const doppelt=eigeneUeberschneidung.length>0;
 
-  const blockiert=doppelt||wd===0||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
+  const blockiert=doppelt||wd===0||ueberzogen>0||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
 
   // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
   useEffect(()=>{setQuelle("");},[von,bis,type]);
@@ -3136,14 +3282,36 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
       const ok=window.confirm(`⚠ Überschneidung mit ${conflicts.length} bestätigtem Urlaub im selben Fachbereich.\nTrotzdem beantragen?`);
       if(!ok)return;
     }
-    // Reicht der Jahresurlaub nicht, wird der Zeitraum am passenden Tag geteilt
+    // Aufteilung des Zeitraums: erst Resturlaub aus dem Vorjahr, dann Jahresurlaub,
+    // zuletzt der gewählte Ausgleich. Bei "Überstunden abbauen" bleibt alles unberührt.
     let pakete=[{type,von,bis,note}];
-    if(fehlend>0&&quelle){
-      const trenn=splitDatum(von,bis,restJahr);
-      const zusatz=(note?note+" · ":"")+"Ausgleich: "+fmtT(fehlend)+" T aus "+(quelle==="resturlaub"?"Resturlaub Vorjahr":"Überstunden");
-      pakete=trenn
-        ?[{type:"urlaub",von,bis:trenn,note},{type:quelle,von:naechsterTag(trenn),bis,note:zusatz}]
-        :[{type:quelle,von,bis,note:zusatz}];
+    if(type==="urlaub"){
+      const stufen=[];
+      if(restVorjahr>0)stufen.push({typ:"resturlaub",menge:Math.min(restVorjahr,wd),
+        text:"Resturlaub aus dem Vorjahr (wird zuerst verbraucht)"});
+      const nachRest=Math.max(0,wd-(restVorjahr>0?Math.min(restVorjahr,wd):0));
+      if(nachRest>0)stufen.push({typ:"urlaub",menge:Math.min(restJahr,nachRest),text:null});
+      const offen=Math.max(0,nachRest-Math.min(restJahr,nachRest));
+      if(offen>0&&quelle)stufen.push({typ:quelle,menge:offen,
+        text:"Ausgleich aus "+(quelle==="resturlaub"?"Resturlaub":"Überstunden")});
+
+      const echte=stufen.filter(x=>x.menge>0);
+      if(echte.length>1){
+        pakete=[];
+        let start=von,verbraucht=0;
+        for(let i=0;i<echte.length;i++){
+          const st=echte[i];
+          verbraucht+=st.menge;
+          const letzterTag=i===echte.length-1?bis:splitDatum(von,bis,verbraucht);
+          if(!letzterTag)break;
+          pakete.push({type:st.typ,von:start,bis:letzterTag,
+            note:st.text?((note?note+" · ":"")+st.text):note});
+          if(i<echte.length-1)start=naechsterTag(letzterTag);
+        }
+      }else if(echte.length===1&&echte[0].typ!=="urlaub"){
+        pakete=[{type:echte[0].typ,von,bis,
+          note:echte[0].text?((note?note+" · ":"")+echte[0].text):note}];
+      }
     }
     setBusy(true);try{await onSave(pakete);}finally{setBusy(false);}
   }
@@ -3160,7 +3328,9 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
           <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
             <span>Urlaubstage (ohne Feiertage): <strong style={{color:wd===0?"#dc2626":"#2d3a2e"}}>{fmtT(wd)}</strong></span>
-            {pruefen&&<span>Verfügbar {new Date().getFullYear()}: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(restJahr)} T</strong></span>}
+            {pruefen&&<span>Verfügbar: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(verfuegbar)} T</strong>
+              {restVorjahr>0&&<span style={{color:"#8aaa5f",fontWeight:400}}> (davon {fmtT(restVorjahr)} Resturlaub)</span>}</span>}
+            {!initial&&type==="ueberstunden"&&k&&<span>Überstundenkonto: <strong style={{color:ueberzogen>0?"#dc2626":"#4a6b0f"}}>{fmtT(restUeber)} T</strong></span>}
           </div>
 
           {/* Warum werden Tage nicht gezählt? */}
@@ -3197,6 +3367,24 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             </div>
           )}
 
+          {/* Resturlaub wird zuerst verbraucht */}
+          {!initial&&type==="urlaub"&&restVorjahr>0&&wd>0&&fehlend===0&&(
+            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:6,padding:"7px 10px"}}>
+              ↩ Zuerst wird der Resturlaub aus dem Vorjahr verbraucht
+              ({fmtT(Math.min(restVorjahr,wd))} von {fmtT(wd)} Tagen){wd>restVorjahr?`, die restlichen ${fmtT(wd-restVorjahr)} Tage vom Jahresurlaub`:""}.
+            </div>
+          )}
+
+          {/* Überstundenkonto reicht nicht */}
+          {ueberzogen>0&&(
+            <div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:2}}>⛔ Nicht genügend Überstunden</div>
+              <div style={{fontSize:12,color:"#b91c1c"}}>
+                Der Zeitraum benötigt {fmtT(wd)} Tage, auf dem Überstundenkonto stehen {fmtT(restUeber)} Tage.
+              </div>
+            </div>
+          )}
+
           {/* Urlaubskonto reicht nicht */}
           {fehlend>0&&(
             <div style={{background:ausgleichMoeglich>0?"#fff7ed":"#fef2f2",border:"1.5px solid "+(ausgleichMoeglich>0?"#f0932b":"#fca5a5"),borderRadius:8,padding:"10px 12px",marginTop:4}}>
@@ -3204,7 +3392,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
                 ⚠ Nicht genügend Urlaub für diesen Zeitraum
               </div>
               <div style={{fontSize:12,color:ausgleichMoeglich>0?"#b45309":"#b91c1c",marginBottom:ausgleichMoeglich>0?8:0}}>
-                Der Zeitraum benötigt {fmtT(wd)} Tage, im laufenden Jahr sind noch {fmtT(restJahr)} Tage frei.
+                Der Zeitraum benötigt {fmtT(wd)} Tage, verfügbar sind noch {fmtT(verfuegbar)} Tage (inkl. Resturlaub).
                 Es fehlen <strong>{fmtT(fehlend)} Tage</strong>.
               </div>
               {ausgleichMoeglich>0?(
@@ -3212,12 +3400,6 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
                   <div style={{fontSize:12,color:"#92400e",fontWeight:600,marginBottom:6}}>
                     Sollen die fehlenden Tage hierüber ausgeglichen werden?
                   </div>
-                  {restVorjahr>0&&(
-                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e",cursor:"pointer",padding:"4px 0"}}>
-                      <input type="radio" name="ausgleich" checked={quelle==="resturlaub"} onChange={()=>setQuelle("resturlaub")} disabled={restVorjahr<fehlend}/>
-                      <span>↩ Resturlaub aus dem Vorjahr — {fmtT(restVorjahr)} T verfügbar{restVorjahr<fehlend?" (reicht nicht)":""}</span>
-                    </label>
-                  )}
                   {restUeber>0&&(
                     <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e",cursor:"pointer",padding:"4px 0"}}>
                       <input type="radio" name="ausgleich" checked={quelle==="ueberstunden"} onChange={()=>setQuelle("ueberstunden")} disabled={restUeber<fehlend}/>
@@ -3226,7 +3408,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
                   )}
                   {quelle&&!blockiert&&(
                     <div style={{fontSize:11,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 8px",marginTop:6}}>
-                      ✓ Der Zeitraum wird automatisch geteilt: {fmtT(restJahr)} T Urlaub und {fmtT(fehlend)} T {quelle==="resturlaub"?"Resturlaub":"Überstunden"}
+                      ✓ Der Zeitraum wird automatisch geteilt: {fmtT(verfuegbar)} T Urlaub/Resturlaub und {fmtT(fehlend)} T Überstunden
                       {quelle==="ueberstunden"&&k?.stdProTag?" (entspricht "+fmtStd(fehlend*k.stdProTag)+" Stunden bei "+fmtStd(k.stdProTag)+" Std./Tag)":""}.
                     </div>
                   )}

@@ -89,6 +89,28 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
+// ─── Jahreskonten (Urlaubsanspruch je Jahr) ──────────────────────────
+export async function getJahreskonten() {
+  const { data, error } = await supabase.from("jahreskonten").select("*");
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
+export async function setJahreskonto(userId, jahr, urlaubstage, resturlaub) {
+  const { data, error } = await supabase.from("jahreskonten")
+    .upsert({ user_id: userId, jahr, urlaubstage, resturlaub, updated_at: new Date().toISOString() },
+            { onConflict: "user_id,jahr" })
+    .select().single();
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+export async function uebertragBerechnen(jahr) {
+  const { data, error } = await supabase.rpc("uebertrag_berechnen", { p_jahr: jahr });
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
 // ─── Überstundenanträge ──────────────────────────────────────────────
 export async function createUeberstundenAntrag(userId, stunden, grund) {
   const { data, error } = await supabase.from("ueberstunden_antraege")
