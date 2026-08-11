@@ -459,10 +459,10 @@ export default function App(){
   // ── Session-Init ──────────────────────────────────────────────────
   // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
   function sessionAbgelaufen(sess){
-    // Token bereits abgelaufen? Dann ist eine Erneuerung nötig — die machen wir
-    // bewusst nicht mehr, sondern lassen neu anmelden (Vorgabe: täglich neu).
-    const exp=sess?.expires_at;
-    if(exp&&Date.now()>exp*1000)return true;
+    // ACHTUNG: "expires_at" ist die Gültigkeit des Zugriffstokens (eine Stunde)
+    // und NICHT das Ende der Sitzung. Supabase erneuert es im Hintergrund selbst.
+    // Es darf deshalb hier nicht geprüft werden — sonst wird man nach einer
+    // Stunde Nutzung fälschlich mit dem Hinweis "neuer Tag" abgemeldet.
     const last=sess?.user?.last_sign_in_at;
     if(!last)return false;
     const anmeldung=new Date(last);
@@ -503,7 +503,11 @@ export default function App(){
       // ist die Sitzung ohnehin hinfällig. Dann gar nicht erst versuchen, das
       // abgelaufene Token zu erneuern — genau dabei blieb die App bisher stehen.
       const gespeichert=sessionAusSpeicher();
-      if(gespeichert&&sessionAbgelaufen(gespeichert)){
+      // Nur beim Start: liegt die Gültigkeit sehr weit zurück, ist auch das
+      // Erneuerungstoken hinüber — dann direkt zur Anmeldung, ohne Wartezeit.
+      const langeTot=gespeichert?.expires_at
+        &&Date.now()-gespeichert.expires_at*1000>7*24*60*60*1000;
+      if(gespeichert&&(langeTot||sessionAbgelaufen(gespeichert))){
         signOutHart();
         try{signOut();}catch(e){}
         setSession(null);setProfile(null);setProfiles([]);setEntries([]);
@@ -609,6 +613,7 @@ export default function App(){
 
       // Neuer Tag angebrochen, während die App im Hintergrund lag → abmelden
       if(sess&&sessionAbgelaufen(sess)){
+        try{sessionStorage.setItem("up_tageswechsel","1");}catch(e){}
         signOutHart();
         try{signOut();}catch(e){}
         window.location.reload();
@@ -703,11 +708,14 @@ export default function App(){
   // Tageswechsel auch bei durchgehend geöffneter App erkennen (Prüfung jede Minute)
   useEffect(()=>{
     if(!session)return;
-    const t=setInterval(async()=>{
-      if(sessionAbgelaufen(sessionRef.current)){
-        await signOut();
-        notify("Neuer Tag – bitte melde dich erneut an.","warn");
-      }
+    const t=setInterval(()=>{
+      if(!sessionAbgelaufen(sessionRef.current))return;
+      // Nicht auf den Server warten: die Sitzung lokal löschen und neu starten.
+      // Ein hängender Abmeldeaufruf hat die App sonst blockiert.
+      try{sessionStorage.setItem("up_tageswechsel","1");}catch(e){}
+      signOutHart();
+      try{signOut();}catch(e){}
+      window.location.reload();
     },60000);
     return()=>clearInterval(t);
   },[session]);
@@ -1594,6 +1602,14 @@ function speichereSperre(v){try{localStorage.setItem(SPERR_KEY,JSON.stringify(v)
 function loescheSperre(){try{localStorage.removeItem(SPERR_KEY);}catch(e){}}
 
 function LoginScreen({onLogin}){
+  // Wurde wegen Tageswechsel abgemeldet? Dann einmalig erklären, warum.
+  const [tageswechsel]=useState(()=>{
+    try{
+      const v=sessionStorage.getItem("up_tageswechsel");
+      if(v)sessionStorage.removeItem("up_tageswechsel");
+      return !!v;
+    }catch(e){return false;}
+  });
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
   const [showPw,setShowPw]=useState(false);
@@ -1659,6 +1675,12 @@ function LoginScreen({onLogin}){
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="TZ Westlausitz" style={{maxWidth:"100%",width:"auto",height:"auto",maxHeight:80,display:"block",margin:"0 auto 8px"}}/>
           <div style={{fontSize:13,color:"#5a6b4a",marginTop:8,fontWeight:600,letterSpacing:"0.02em"}}>Urlaubsplaner</div>
+          {tageswechsel&&(
+            <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",border:"1px solid #fcd9b0",
+              borderRadius:8,padding:"8px 12px",marginTop:12,textAlign:"left"}}>
+              Ein neuer Tag hat begonnen — aus Sicherheitsgründen ist eine erneute Anmeldung nötig.
+            </div>
+          )}
         </div>
 
         {!forgotMode?(
