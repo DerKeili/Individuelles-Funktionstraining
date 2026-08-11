@@ -1,0 +1,25 @@
+name: Testbau
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Abhängigkeiten installieren
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Frontend bauen
+        working-directory: frontend
+        run: npm run build

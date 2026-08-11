@@ -3541,10 +3541,39 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
       <div style={S.modal}>
         <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={onClose}>✕</button></div>
         <div style={S.mBd}>
-          <div style={{marginBottom:12}}><label style={S.lbl}>Typ</label><select style={S.inp} value={type} onChange={e=>setType(e.target.value)}><option value="urlaub">Urlaub</option><option value="resturlaub">Resturlaub (Vorjahr)</option><option value="ueberstunden">Überstunden abbauen</option></select></div>
+          {/* 1. Zeitraum wählen */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div><label style={S.lbl}>Von</label><input style={S.dateInp} type="date" value={von} onChange={e=>{setVon(e.target.value);if(e.target.value>bis)setBis(e.target.value);}}/></div>
             <div><label style={S.lbl}>Bis</label><input style={S.dateInp} type="date" value={bis} min={von} onChange={e=>setBis(e.target.value)}/></div>
+          </div>
+
+          {/* 2. Erst danach entscheiden, wovon abgezogen wird */}
+          <div style={{marginBottom:12}}>
+            <label style={S.lbl}>Wovon soll der Zeitraum abgezogen werden?</label>
+            <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:5}}>
+              {[["urlaub","🏖 Urlaub",restVorjahr>0?"Resturlaub aus dem Vorjahr wird automatisch zuerst genutzt":"Vom Jahresurlaub",k?fmtT(verfuegbar)+" T verfügbar":null],
+                ["ueberstunden","⏱ Überstunden",k&&k.stdProTag>0?"Belastet den Urlaubsanspruch nicht":"Belastet den Urlaubsanspruch nicht",k?fmtT(restUeber)+" T verfügbar"+(k.stdProTag>0?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""):null]
+              ].map(([wert,titel,erklaerung,vorrat])=>{
+                const aktiv=type===wert;
+                const leer=k&&((wert==="urlaub"&&verfuegbar<=0)||(wert==="ueberstunden"&&restUeber<=0));
+                return(
+                  <label key={wert} style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",
+                    background:aktiv?"#f7fce8":"#fff",border:"1.5px solid "+(aktiv?"#7ab529":"#d5e8a0"),
+                    borderRadius:8,padding:"9px 11px",opacity:leer&&!aktiv?0.55:1}}>
+                    <input type="radio" name="abzugsquelle" checked={aktiv}
+                      onChange={()=>setType(wert)} style={{marginTop:3,flexShrink:0}}/>
+                    <span style={{flex:1,minWidth:0}}>
+                      <span style={{fontWeight:700,fontSize:13,color:"#2d3a2e"}}>{titel}</span>
+                      {vorrat&&<span style={{fontSize:12,color:leer?"#dc2626":"#4a6b0f",fontWeight:600}}> · {vorrat}</span>}
+                      <div style={{fontSize:11,color:"#8aaa5f",marginTop:1}}>{erklaerung}</div>
+                    </span>
+                  </label>
+                );
+              })}
+              {initial&&type==="resturlaub"&&(
+                <div style={{fontSize:12,color:"#8aaa5f"}}>Dieser Eintrag läuft als Resturlaub aus dem Vorjahr.</div>
+              )}
+            </div>
           </div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
           <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
@@ -3588,13 +3617,37 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             </div>
           )}
 
-          {/* Resturlaub wird zuerst verbraucht */}
-          {!initial&&type==="urlaub"&&restVorjahr>0&&wd>0&&fehlend===0&&(
-            <div style={{fontSize:12,color:"#4a6b0f",background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:6,padding:"7px 10px"}}>
-              ↩ Zuerst wird der Resturlaub aus dem Vorjahr verbraucht
-              ({fmtT(Math.min(restVorjahr,wd))} von {fmtT(wd)} Tagen){wd>restVorjahr?`, die restlichen ${fmtT(wd-restVorjahr)} Tage vom Jahresurlaub`:""}.
-            </div>
-          )}
+          {/* Was genau wird gebucht? */}
+          {!initial&&wd>0&&!doppelt&&k&&(()=>{
+            const zeilen=[];
+            if(type==="ueberstunden"){
+              zeilen.push(["⏱ Überstunden",Math.min(wd,restUeber)]);
+            }else{
+              const ausRest=Math.min(restVorjahr,wd);
+              if(ausRest>0)zeilen.push(["↩ Resturlaub Vorjahr",ausRest]);
+              const ausJahr=Math.min(restJahr,Math.max(0,wd-ausRest));
+              if(ausJahr>0)zeilen.push(["🏖 Jahresurlaub",ausJahr]);
+              if(fehlend>0&&quelle==="ueberstunden")zeilen.push(["⏱ Überstunden",fehlend]);
+            }
+            if(zeilen.length===0)return null;
+            return(
+              <div style={{background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:8,padding:"9px 11px"}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#4a6b0f",marginBottom:4}}>
+                  So wird gebucht:
+                </div>
+                {zeilen.map(([lbl,menge],i)=>(
+                  <div key={i} style={{fontSize:12,color:"#2d3a2e",display:"flex",justifyContent:"space-between"}}>
+                    <span>{lbl}</span><strong>{fmtT(menge)} {menge===1?"Tag":"Tage"}</strong>
+                  </div>
+                ))}
+                {zeilen.length>1&&(
+                  <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>
+                    Der Zeitraum wird dafür automatisch in {zeilen.length} Einträge geteilt.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Überstundenkonto reicht nicht */}
           {ueberzogen>0&&(
