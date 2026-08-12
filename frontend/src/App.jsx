@@ -3440,8 +3440,9 @@ Thomas Keilig`;
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
 function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId,zielUser}){
   const[type,setType]=useState(initial?.type||"urlaub");
-  const[von,setVon]=useState(initial?.von||`${year}-01-01`);
-  const[bis,setBis]=useState(initial?.bis||`${year}-01-07`);
+  const[von,setVon]=useState(initial?.von||"");
+  const[bis,setBis]=useState(initial?.bis||"");
+  const zeitraumGesetzt=!!von&&!!bis;
   const[note,setNote]=useState(initial?.note||"");
   const[busy,setBusy]=useState(false);
   const[conflicts,setConflicts]=useState([]);
@@ -3455,12 +3456,12 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const restVorjahr=k?Math.max(0,Math.round((k.resturlaub  -k.genutztRest )*2)/2):0;
   const restUeber  =k?Math.max(0,Math.round((k.ueberstunden-k.genutztUeber)*2)/2):0;
   // Nur beim Neuanlegen von normalem Urlaub prüfen
-  const pruefen=!!k&&!initial&&type==="urlaub"&&wd>0;
+  const pruefen=!!k&&!initial&&type==="urlaub"&&wd>0&&zeitraumGesetzt;
   // Resturlaub wird zuerst verbraucht, deshalb zählt er zum verfügbaren Vorrat
   const verfuegbar=Math.round((restJahr+restVorjahr)*2)/2;
   const fehlend=pruefen?Math.max(0,Math.round((wd-verfuegbar)*2)/2):0;
   // Überstundenabbau ist jederzeit möglich und belastet den Urlaubsanspruch nicht
-  const ueberzogen=(!initial&&type==="ueberstunden"&&k)?Math.max(0,Math.round((wd-restUeber)*2)/2):0;
+  const ueberzogen=(!initial&&type==="ueberstunden"&&k&&zeitraumGesetzt)?Math.max(0,Math.round((wd-restUeber)*2)/2):0;
   const ausgleichMoeglich=restUeber;
   const gewaehlteReserve=quelle==="ueberstunden"?restUeber:0;
   // Eigene Doppelbuchung: überschneidet sich der Zeitraum mit einem eigenen Eintrag?
@@ -3476,10 +3477,14 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   })();
   const doppelt=eigeneUeberschneidung.length>0;
 
-  const blockiert=doppelt||wd===0||ueberzogen>0||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
+  const blockiert=!zeitraumGesetzt||doppelt||wd===0||ueberzogen>0||(fehlend>0&&(ausgleichMoeglich<=0||!quelle||gewaehlteReserve<fehlend));
 
-  // Bei Datums- oder Typwechsel die Auswahl zurücksetzen
-  useEffect(()=>{setQuelle("");},[von,bis,type]);
+  // Gibt es nur eine mögliche Ausgleichsquelle, direkt vorauswählen —
+  // sonst bleibt der Speichern-Knopf ohne erkennbaren Grund gesperrt.
+  useEffect(()=>{
+    if(fehlend>0&&restUeber>=fehlend)setQuelle("ueberstunden");
+    else setQuelle("");
+  },[von,bis,type,fehlend,restUeber]);
 
   // Konflikt-Prüfung in Echtzeit
   useEffect(()=>{
@@ -3576,12 +3581,17 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             </div>
           </div>
           <div style={{marginBottom:12}}><label style={S.lbl}>Hinweis (optional)</label><input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="z.B. Familienurlaub"/></div>
-          <div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+          {!zeitraumGesetzt&&(
+            <div style={{fontSize:13,color:"#8aaa5f",padding:"10px 12px",background:"#f8faf0",border:"1px dashed #d5e8a0",borderRadius:8}}>
+              Bitte zuerst Start- und Enddatum wählen.
+            </div>
+          )}
+          {zeitraumGesetzt&&<div style={{fontSize:13,color:"#5a6b4a",padding:"8px 0",borderTop:"1px solid #edf5d8",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
             <span>Urlaubstage (ohne Feiertage): <strong style={{color:wd===0?"#dc2626":"#2d3a2e"}}>{fmtT(wd)}</strong></span>
             {pruefen&&<span>Verfügbar: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(verfuegbar)} T</strong>
               {restVorjahr>0&&<span style={{color:"#8aaa5f",fontWeight:400}}> (davon {fmtT(restVorjahr)} Resturlaub)</span>}</span>}
             {!initial&&type==="ueberstunden"&&k&&<span>Überstundenkonto: <strong style={{color:ueberzogen>0?"#dc2626":"#4a6b0f"}}>{fmtT(restUeber)} T</strong></span>}
-          </div>
+          </div>}
 
           {/* Warum werden Tage nicht gezählt? */}
           {feiertageImZeitraum.length>0&&(
@@ -3591,7 +3601,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
               ))}
             </div>
           )}
-          {wd===0&&(
+          {zeitraumGesetzt&&wd===0&&(
             <div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:8,padding:"10px 12px"}}>
               <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:2}}>⛔ Kein Arbeitstag im Zeitraum</div>
               <div style={{fontSize:12,color:"#b91c1c"}}>
@@ -3672,20 +3682,15 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
               {ausgleichMoeglich>0?(
                 <div>
                   <div style={{fontSize:12,color:"#92400e",fontWeight:600,marginBottom:6}}>
-                    Sollen die fehlenden Tage hierüber ausgeglichen werden?
+                    Die fehlenden Tage werden über die Überstunden ausgeglichen:
                   </div>
-                  {restUeber>0&&(
-                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e",cursor:"pointer",padding:"4px 0"}}>
-                      <input type="radio" name="ausgleich" checked={quelle==="ueberstunden"} onChange={()=>setQuelle("ueberstunden")} disabled={restUeber<fehlend}/>
-                      <span>⏱ Überstunden abbauen — {fmtT(restUeber)} T verfügbar{k?.stdProTag?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""}{restUeber<fehlend?" · reicht nicht":""}</span>
-                    </label>
-                  )}
-                  {quelle&&!blockiert&&(
-                    <div style={{fontSize:11,color:"#4a6b0f",background:"#f7fce8",borderRadius:6,padding:"6px 8px",marginTop:6}}>
-                      ✓ Der Zeitraum wird automatisch geteilt: {fmtT(verfuegbar)} T Urlaub/Resturlaub und {fmtT(fehlend)} T Überstunden
-                      {quelle==="ueberstunden"&&k?.stdProTag?" (entspricht "+fmtStd(fehlend*k.stdProTag)+" Stunden bei "+fmtStd(k.stdProTag)+" Std./Tag)":""}.
-                    </div>
-                  )}
+                  <div style={{fontSize:12,color:"#92400e",padding:"3px 0"}}>
+                    ⏱ <strong>{fmtT(fehlend)} {fehlend===1?"Tag":"Tage"}</strong> aus dem Überstundenkonto
+                    {k?.stdProTag?" ("+fmtStd(fehlend*k.stdProTag)+" Std.)":""} · danach verbleiben {fmtT(restUeber-fehlend)} T.
+                  </div>
+                  <div style={{fontSize:11,color:"#92400e",marginTop:4}}>
+                    Möchtest du den gesamten Zeitraum über Überstunden nehmen, wähle oben „⏱ Überstunden".
+                  </div>
                 </div>
               ):(
                 <div style={{fontSize:12,color:"#b91c1c",marginTop:4}}>
@@ -3713,7 +3718,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           )}
           {!isAdmin&&<div style={{fontSize:11,color:"#8aaa5f",marginTop:6}}>Dein Antrag wird dem Administrator zur Genehmigung vorgelegt.</div>}
         </div>
-        <div style={S.mFt}><button style={{...S.savBtn,opacity:(busy||blockiert)?0.5:1,cursor:blockiert?"not-allowed":"pointer"}} onClick={save} disabled={busy||blockiert} title={blockiert?"Nicht genügend Urlaubstage":""}>{isAdmin?"Speichern":"Beantragen"}</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
+        <div style={S.mFt}><button style={{...S.savBtn,opacity:(busy||blockiert)?0.5:1,cursor:blockiert?"not-allowed":"pointer"}} onClick={save} disabled={busy||blockiert} title={!zeitraumGesetzt?"Bitte zuerst den Zeitraum wählen":blockiert?"Speichern derzeit nicht möglich – siehe Hinweise oben":""}>{isAdmin?"Speichern":"Beantragen"}</button><button style={S.canBtn} onClick={onClose}>Abbrechen</button></div>
       </div>
     </div>
   );
@@ -4086,11 +4091,14 @@ const S={
   icnBtn:{background:"#f5f8ec",border:"1px solid #d5e8a0",color:"#6a9e2f",borderRadius:6,padding:"4px 8px",fontSize:13,cursor:"pointer"},
   th:{textAlign:"left",padding:"10px 14px",fontSize:11,fontWeight:700,color:"#5a6b4a",textTransform:"uppercase",letterSpacing:"0.05em",background:"#f8faf0"},
   td:{padding:"10px 14px",fontSize:13,color:"#2d3a2e",borderBottom:"1px solid #edf5ee"},
-  overlay:{position:"fixed",inset:0,background:"rgba(45,58,46,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1500,backdropFilter:"blur(4px)"},
-  modal:{background:"#ffffff",borderRadius:16,width:500,maxWidth:"95vw",border:"1px solid #d5e8a0",boxShadow:"0 20px 60px rgba(61,122,79,0.18)"},
-  mHd:{padding:"18px 22px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #edf5ee"},
-  mBd:{padding:"18px 22px"},
-  mFt:{padding:"14px 22px 18px",display:"flex",gap:10,borderTop:"1px solid #edf5ee"},
+  overlay:{position:"fixed",inset:0,background:"rgba(45,58,46,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1500,backdropFilter:"blur(4px)",padding:12,boxSizing:"border-box"},
+  modal:{background:"#ffffff",borderRadius:16,width:500,maxWidth:"95vw",border:"1px solid #d5e8a0",
+    boxShadow:"0 20px 60px rgba(61,122,79,0.18)",
+    // Nie höher als der Bildschirm — sonst rutschen die Knöpfe unerreichbar nach unten
+    maxHeight:"calc(100dvh - 24px)",display:"flex",flexDirection:"column",overflow:"hidden"},
+  mHd:{padding:"18px 22px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #edf5ee",flexShrink:0},
+  mBd:{padding:"18px 22px",overflowY:"auto",WebkitOverflowScrolling:"touch",flex:"1 1 auto",minHeight:0},
+  mFt:{padding:"14px 22px 18px",display:"flex",gap:10,borderTop:"1px solid #edf5ee",flexShrink:0,background:"#fff"},
   inp:{width:"100%",background:"#f8faf0",border:"1.5px solid #c8d890",borderRadius:8,padding:"9px 12px",color:"#2d3a2e",fontSize:13,outline:"none",boxSizing:"border-box",transition:"border .15s"},
   dateInp:{width:"100%",background:"#f8faf0",border:"1.5px solid #c8d890",borderRadius:8,padding:"7px 10px",color:"#2d3a2e",fontSize:13,lineHeight:1.2,height:38,outline:"none",boxSizing:"border-box",textAlign:"left",WebkitAppearance:"none",appearance:"none",fontFamily:"inherit"},
   lbl:{display:"block",fontSize:11,fontWeight:700,color:"#5a6b4a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"},
