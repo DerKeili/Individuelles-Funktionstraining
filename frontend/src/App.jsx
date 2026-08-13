@@ -328,15 +328,19 @@ const BEREICH_NAME={
 };
 function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",sparte:null,bereich:null,l:null};}
 // Auswahl für die Bereichsfilter: Alle, Sparten, dann alle belegten Bereiche
-const FILTER_OPTIONEN=[
-  ["alle","👥 Alle Bereiche"],
-  ["sparte:therapie","🩺 Therapie (gesamt)"],
-  ["sparte:pflege","🏠 Pflege (gesamt)"],
-  ["leitung","🔑 Leitung"],
-  ...POSITIONEN.filter(p=>p.bereich&&p.scope==="selbst")
-    .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
-    .filter((v,i,arr)=>arr.findIndex(x=>x[0]===v[0])===i),
+const bereicheDerSparte=sp=>POSITIONEN
+  .filter(p=>p.sparte===sp&&p.bereich&&p.scope==="selbst")
+  .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
+  .filter((v,i,arr)=>arr.findIndex(x=>x[0]===v[0])===i);
+// Gruppierte Auswahl für das Aufklappmenü
+const FILTER_GRUPPEN=[
+  ["Übersicht",[["alle","Alle Bereiche"],["leitung","Nur Leitung"]]],
+  ["Therapie",[["sparte:therapie","Therapie (gesamt)"],...bereicheDerSparte("therapie")]],
+  ["Pflege",  [["sparte:pflege","Pflege (gesamt)"],...bereicheDerSparte("pflege")]],
 ];
+// Flache Liste (für Beschriftungen und Suche)
+const FILTER_OPTIONEN=FILTER_GRUPPEN.flatMap(([,opts])=>opts);
+const filterLabel=wert=>(FILTER_OPTIONEN.find(([k])=>k===wert)||[null,"Alle Bereiche"])[1];
 // Passt eine Person zum gewählten Filterwert?
 function passtZuFilter(u,filter){
   if(!filter||filter==="alle")return true;
@@ -1412,29 +1416,33 @@ export default function App(){
             ))}
           </div>
           {/* Zeile 2: Bereichsfilter — nur für Geschäfts-/Praxisleitung und Administratoren */}
-          {darfBereichFiltern&&view==="kalender"&&(schmal?(
-            /* Handy: platzsparendes Auswahlmenü */
-            <select value={kalBereich} onChange={e=>setKalBereich(e.target.value)}
-              style={{background:kalBereich==="alle"?"#f8faf0":"#e8f3d6",border:"1.5px solid "+(kalBereich==="alle"?"#c8d890":"#7ab529"),
-                borderRadius:14,padding:"5px 10px",fontSize:12,fontWeight:700,
-                color:"#4a6b0f",maxWidth:"100%",outline:"none"}}>
-              {FILTER_OPTIONEN.map(([k,lbl])=>(
-                <option key={k} value={k}>{lbl.replace(/^[^\w]+ /,"")}</option>
-              ))}
-            </select>
-          ):(
-            <div style={S.legRow}>
-              {FILTER_OPTIONEN.map(([k,lbl])=>(
-                <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
+          {darfBereichFiltern&&view==="kalender"&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",justifyContent:schmal?"flex-start":"flex-end"}}>
+              {/* Schnellwahl: nur die drei obersten Ebenen als Knöpfe */}
+              {[["alle","👥 Alle"],["sparte:therapie","🩺 Therapie"],["sparte:pflege","🏠 Pflege"]].map(([k,lbl])=>(
+                <button key={k} onClick={()=>setKalBereich(k)} style={{
                   background:kalBereich===k?"#e8f3d6":"none",cursor:"pointer",
                   border:"1px solid "+(kalBereich===k?"#7ab529":"#cbd5e1"),
-                  borderRadius:14,padding:"3px 9px",transition:"all .15s",
-                  opacity:kalBereich===k?1:0.55,
-                  fontSize:11,fontWeight:600,color:kalBereich===k?"#4a6b0f":"#94a3b8",whiteSpace:"nowrap",
+                  borderRadius:14,padding:"3px 10px",transition:"all .15s",
+                  opacity:kalBereich===k?1:0.6,
+                  fontSize:11,fontWeight:700,color:kalBereich===k?"#4a6b0f":"#94a3b8",whiteSpace:"nowrap",
                 }}>{lbl}</button>
               ))}
+              {/* Feinauswahl über ein Aufklappmenü — spart auf großen Bildschirmen viel Platz */}
+              <select value={kalBereich} onChange={e=>setKalBereich(e.target.value)}
+                title="Einzelnen Bereich auswählen"
+                style={{background:kalBereich==="alle"?"#f8faf0":"#e8f3d6",
+                  border:"1.5px solid "+(kalBereich==="alle"?"#c8d890":"#7ab529"),
+                  borderRadius:14,padding:"4px 10px",fontSize:11,fontWeight:700,
+                  color:"#4a6b0f",maxWidth:"100%",outline:"none",cursor:"pointer"}}>
+                {FILTER_GRUPPEN.map(([gruppe,opts])=>(
+                  <optgroup key={gruppe} label={gruppe}>
+                    {opts.map(([k,lbl])=><option key={k} value={k}>{lbl}</option>)}
+                  </optgroup>
+                ))}
+              </select>
             </div>
-          ))}
+          )}
           {/* Zeile 3: Ferien- und Feiertagsanzeige */}
           <div style={{...S.legRow,...(schmal?{justifyContent:"flex-start"}:{})}}>
           {/* Ferien Toggle — klickbar */}
@@ -2153,8 +2161,10 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
                 style={{marginLeft:"auto",background:bereich==="alle"?"#fff":"#fef3c7",
                   border:"1px solid #fcd9b0",borderRadius:12,padding:"3px 9px",
                   fontSize:11,fontWeight:700,color:"#92400e",outline:"none"}}>
-                {FILTER_OPTIONEN.map(([k,l])=>(
-                  <option key={k} value={k}>{l.replace(/^[^\w]+ /,"")}</option>
+                {FILTER_GRUPPEN.map(([gruppe,opts])=>(
+                  <optgroup key={gruppe} label={gruppe}>
+                    {opts.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                  </optgroup>
                 ))}
               </select>
             )}
@@ -2211,6 +2221,36 @@ function NeuerungenModal({eintraege,onGelesen,onSpaeter}){
         </div>
         <div style={{padding:"0 20px 14px",fontSize:11,color:"#8aaa5f"}}>
           „Später lesen“ zeigt den Hinweis bei der nächsten Anmeldung erneut.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Rückfrage bei ungespeicherten Änderungen ────────────────────────────────
+function SpeichernFrage({onSpeichern,onVerwerfen,onZurueck,busy}){
+  return(
+    <div style={{...S.overlay,zIndex:1600}}>
+      <div style={{...S.modal,maxWidth:400}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+            Ungespeicherte Änderungen
+          </span>
+        </div>
+        <div style={{padding:"16px 22px",fontSize:13,color:"#5a6b4a",lineHeight:1.5}}>
+          Es gibt Änderungen, die noch nicht gespeichert wurden.
+          Möchtest du sie speichern oder verwerfen?
+        </div>
+        <div style={{...S.mFt,flexWrap:"wrap"}}>
+          <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy} onClick={onSpeichern}>
+            {busy?"Speichert…":"Speichern"}
+          </button>
+          <button style={{...S.canBtn,color:"#b91c1c",borderColor:"#fca5a5"}} onClick={onVerwerfen}>
+            Verwerfen
+          </button>
+          <button style={{...S.canBtn,marginLeft:"auto"}} onClick={onZurueck}>
+            Zurück
+          </button>
         </div>
       </div>
     </div>
@@ -2453,28 +2493,30 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
         </div>
       </div>
       {/* Fachbereichs-Filter wie im Kalender */}
-      {darfBereichFiltern&&(schmal?(
-        <select value={bereich} onChange={e=>setBereich(e.target.value)}
-          style={{marginBottom:14,background:bereich==="alle"?"#f8faf0":"#e8f3d6",
-            border:"1.5px solid "+(bereich==="alle"?"#c8d890":"#7ab529"),borderRadius:14,
-            padding:"6px 12px",fontSize:13,fontWeight:700,color:"#4a6b0f",outline:"none",maxWidth:"100%"}}>
-          {FILTER_OPTIONEN.map(([k,lbl])=>(
-            <option key={k} value={k}>{lbl.replace(/^[^\w]+ /,"")}</option>
-          ))}
-        </select>
-      ):(
-        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:14}}>
-          {FILTER_OPTIONEN.map(([k,lbl])=>(
+      {darfBereichFiltern&&(
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+          {[["alle","👥 Alle"],["sparte:therapie","🩺 Therapie"],["sparte:pflege","🏠 Pflege"]].map(([k,lbl])=>(
             <button key={k} onClick={()=>setBereich(k)} style={{
               background:bereich===k?"#e8f3d6":"none",cursor:"pointer",
               border:"1px solid "+(bereich===k?"#7ab529":"#cbd5e1"),
-              borderRadius:14,padding:"4px 10px",transition:"all .15s",
-              opacity:bereich===k?1:0.55,fontSize:11,fontWeight:600,
+              borderRadius:14,padding:"4px 11px",transition:"all .15s",
+              opacity:bereich===k?1:0.6,fontSize:12,fontWeight:700,
               color:bereich===k?"#4a6b0f":"#94a3b8",whiteSpace:"nowrap",
             }}>{lbl}</button>
           ))}
+          <select value={bereich} onChange={e=>setBereich(e.target.value)}
+            style={{background:bereich==="alle"?"#f8faf0":"#e8f3d6",
+              border:"1.5px solid "+(bereich==="alle"?"#c8d890":"#7ab529"),borderRadius:14,
+              padding:"5px 11px",fontSize:12,fontWeight:700,color:"#4a6b0f",outline:"none",
+              maxWidth:"100%",cursor:"pointer"}}>
+            {FILTER_GRUPPEN.map(([gruppe,opts])=>(
+              <optgroup key={gruppe} label={gruppe}>
+                {opts.map(([k,lbl])=><option key={k} value={k}>{lbl}</option>)}
+              </optgroup>
+            ))}
+          </select>
         </div>
-      ))}
+      )}
       {/* Offene Überstundenanträge */}
       {(()=>{
         const offen=(ueAntraege||[]).filter(a=>a.status==="pending"&&passt(a.user_id));
@@ -3197,6 +3239,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   const[resetSuccess,setResetSuccess]=useState(null);
   const[saveErr,setSaveErr]=useState("");
   const[start]=useState(()=>JSON.stringify({...(initial||{}),...{}}));
+  const[frageOffen,setFrageOffen]=useState(false);
   const[busy,setBusy]=useState(false);
 
   // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
@@ -3226,8 +3269,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[]
   }
   async function schliessen(){
     if(!istGeaendert()){onClose();return;}
-    const w=window.confirm("Es gibt ungespeicherte Änderungen.\n\nOK = speichern\nAbbrechen = verwerfen");
-    if(w){await save();}else{onClose();}
+    setFrageOffen(true);
   }
 
   async function saveAdminPwReset(){
@@ -3260,7 +3302,13 @@ Thomas Keilig`;
 
   return(
     <div style={S.overlay}>
-      <div style={{...S.modal,maxHeight:"92vh",overflowY:"auto",width:520}}>
+      {frageOffen&&(
+        <SpeichernFrage busy={busy}
+          onSpeichern={async()=>{setFrageOffen(false);await save();}}
+          onVerwerfen={()=>{setFrageOffen(false);onClose();}}
+          onZurueck={()=>setFrageOffen(false)}/>
+      )}
+      <div style={{...S.modal,width:520}}>
         <div style={S.mHd}><span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>{title}</span><button style={S.clsBtn} onClick={schliessen}>✕</button></div>
         <div style={S.mBd}>
 
