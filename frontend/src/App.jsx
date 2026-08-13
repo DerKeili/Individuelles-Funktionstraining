@@ -227,24 +227,124 @@ function eDays(entries=[],type,u){return entries.filter(e=>e.type===type).reduce
 // ─── Geschlecht, Positionen & Berechtigungen ─────────────────────────────────
 const GESCHLECHTER=[["w","weiblich"],["m","männlich"],["d","divers"]];
 // scope: "alle" = darf alle bearbeiten · "bereich" = nur eigenen Fachbereich · "selbst" = nur sich
+// Sparten: "leitung" (Geschäftsleitung/Buchhaltung), "therapie", "pflege"
+// Reichweite: alle > sparte > bereich > selbst
 const POSITIONEN=[
-  {key:"geschaeftsleitung",scope:"alle",   bereich:null,     l:{m:"Geschäftsleitung",w:"Geschäftsleitung",d:"Geschäftsleitung"}},
-  {key:"praxisleitung",    scope:"alle",   bereich:null,     l:{m:"Praxisleitung",w:"Praxisleitung",d:"Praxisleitung"}},
-  {key:"tl_physio",        scope:"bereich",bereich:"physio", l:{m:"Teamleitung Physiotherapie",w:"Teamleitung Physiotherapie",d:"Teamleitung Physiotherapie"}},
-  {key:"tl_ergo",          scope:"bereich",bereich:"ergo",   l:{m:"Teamleitung Ergotherapie",w:"Teamleitung Ergotherapie",d:"Teamleitung Ergotherapie"}},
-  {key:"tl_trainer",       scope:"bereich",bereich:"trainer",l:{m:"Teamleitung Trainer",w:"Teamleitung Trainer",d:"Teamleitung Trainer"}},
-  {key:"tl_logo",          scope:"bereich",bereich:"logo",   l:{m:"Teamleitung Logopädie",w:"Teamleitung Logopädie",d:"Teamleitung Logopädie"}},
-  {key:"tl_podo",          scope:"bereich",bereich:"podo",   l:{m:"Teamleitung Podologie",w:"Teamleitung Podologie",d:"Teamleitung Podologie"}},
-  {key:"physiotherapeut",  scope:"selbst", bereich:"physio", l:{m:"Physiotherapeut",w:"Physiotherapeutin",d:"Physiotherapeut/in"}},
-  {key:"ergotherapeut",    scope:"selbst", bereich:"ergo",   l:{m:"Ergotherapeut",w:"Ergotherapeutin",d:"Ergotherapeut/in"}},
-  {key:"logopaede",        scope:"selbst", bereich:"logo",   l:{m:"Logopäde",w:"Logopädin",d:"Logopäde/Logopädin"}},
-  {key:"podologe",         scope:"selbst", bereich:"podo",   l:{m:"Podologe",w:"Podologin",d:"Podologe/Podologin"}},
-  {key:"trainer",          scope:"selbst", bereich:"trainer",l:{m:"Trainer",w:"Trainerin",d:"Trainer/in"}},
-  {key:"rezeption",        scope:"selbst", bereich:"rezeption",l:{m:"Rezeption",w:"Rezeption",d:"Rezeption"}},
+  // ── Übergreifende Leitung ───────────────────────────────────────
+  {key:"geschaeftsleitung",scope:"alle",  sparte:"leitung", bereich:null,
+   l:{m:"Geschäftsleitung",w:"Geschäftsleitung",d:"Geschäftsleitung"}},
+  {key:"buchhaltung",      scope:"selbst",sparte:"leitung", bereich:"buchhaltung",
+   l:{m:"Buchhaltung",w:"Buchhaltung",d:"Buchhaltung"}},
+
+  // ── Therapie: Leitung ───────────────────────────────────────────
+  {key:"praxisleitung",    scope:"sparte",sparte:"therapie",bereich:null,
+   l:{m:"Praxisleitung",w:"Praxisleitung",d:"Praxisleitung"}},
+
+  // ── Therapie: Teamleitungen ─────────────────────────────────────
+  {key:"tl_physio_koenigsbrueck",scope:"bereich",sparte:"therapie",bereich:"physio_koenigsbrueck",
+   l:{m:"Teamleitung Physiotherapie Königsbrück",w:"Teamleitung Physiotherapie Königsbrück",d:"Teamleitung Physiotherapie Königsbrück"}},
+  {key:"tl_physio_pulsnitz",     scope:"bereich",sparte:"therapie",bereich:"physio_pulsnitz",
+   l:{m:"Teamleitung Physiotherapie Pulsnitz",w:"Teamleitung Physiotherapie Pulsnitz",d:"Teamleitung Physiotherapie Pulsnitz"}},
+  {key:"tl_physio_kamenz",       scope:"bereich",sparte:"therapie",bereich:"physio_kamenz",
+   l:{m:"Teamleitung Physiotherapie Kamenz",w:"Teamleitung Physiotherapie Kamenz",d:"Teamleitung Physiotherapie Kamenz"}},
+  {key:"tl_ergo",   scope:"bereich",sparte:"therapie",bereich:"ergo",
+   l:{m:"Teamleitung Ergotherapie",w:"Teamleitung Ergotherapie",d:"Teamleitung Ergotherapie"}},
+  {key:"tl_logo",   scope:"bereich",sparte:"therapie",bereich:"logo",
+   l:{m:"Teamleitung Logopädie",w:"Teamleitung Logopädie",d:"Teamleitung Logopädie"}},
+  {key:"tl_podo",   scope:"bereich",sparte:"therapie",bereich:"podo",
+   l:{m:"Teamleitung Podologie",w:"Teamleitung Podologie",d:"Teamleitung Podologie"}},
+  {key:"tl_trainer",scope:"bereich",sparte:"therapie",bereich:"trainer",
+   l:{m:"Teamleitung Trainer",w:"Teamleitung Trainer",d:"Teamleitung Trainer"}},
+
+  // ── Therapie: Mitarbeiter ───────────────────────────────────────
+  {key:"physio_koenigsbrueck",scope:"selbst",sparte:"therapie",bereich:"physio_koenigsbrueck",
+   l:{m:"Physiotherapeut Königsbrück",w:"Physiotherapeutin Königsbrück",d:"Physiotherapeut/in Königsbrück"}},
+  {key:"physio_pulsnitz",     scope:"selbst",sparte:"therapie",bereich:"physio_pulsnitz",
+   l:{m:"Physiotherapeut Pulsnitz",w:"Physiotherapeutin Pulsnitz",d:"Physiotherapeut/in Pulsnitz"}},
+  {key:"physio_kamenz",       scope:"selbst",sparte:"therapie",bereich:"physio_kamenz",
+   l:{m:"Physiotherapeut Kamenz",w:"Physiotherapeutin Kamenz",d:"Physiotherapeut/in Kamenz"}},
+  {key:"ergotherapeut",scope:"selbst",sparte:"therapie",bereich:"ergo",
+   l:{m:"Ergotherapeut",w:"Ergotherapeutin",d:"Ergotherapeut/in"}},
+  {key:"logopaede",    scope:"selbst",sparte:"therapie",bereich:"logo",
+   l:{m:"Logopäde",w:"Logopädin",d:"Logopäde/Logopädin"}},
+  {key:"podologe",     scope:"selbst",sparte:"therapie",bereich:"podo",
+   l:{m:"Podologe",w:"Podologin",d:"Podologe/Podologin"}},
+  {key:"trainer",      scope:"selbst",sparte:"therapie",bereich:"trainer",
+   l:{m:"Trainer",w:"Trainerin",d:"Trainer/in"}},
+  {key:"rezeption",    scope:"selbst",sparte:"therapie",bereich:"rezeption",
+   l:{m:"Rezeption",w:"Rezeption",d:"Rezeption"}},
+  // Reinigungskraft: keine eigene Teamleitung → Praxisleitung ist zuständig
+  {key:"reinigungskraft",scope:"selbst",sparte:"therapie",bereich:"reinigung",
+   l:{m:"Reinigungskraft",w:"Reinigungskraft",d:"Reinigungskraft"}},
+
+  // ── Pflege: Leitung ─────────────────────────────────────────────
+  {key:"pflegedienstleitung",scope:"sparte",sparte:"pflege",bereich:null,
+   l:{m:"Pflegedienstleitung",w:"Pflegedienstleitung",d:"Pflegedienstleitung"}},
+
+  // ── Pflege: Teamleitungen ───────────────────────────────────────
+  {key:"tl_ambulant",   scope:"bereich",sparte:"pflege",bereich:"ambulant",
+   l:{m:"Teamleitung Ambulante Pflege",w:"Teamleitung Ambulante Pflege",d:"Teamleitung Ambulante Pflege"}},
+  {key:"tl_wg_koenigsbrueck",scope:"bereich",sparte:"pflege",bereich:"wg_koenigsbrueck",
+   l:{m:"Teamleitung WG Königsbrück",w:"Teamleitung WG Königsbrück",d:"Teamleitung WG Königsbrück"}},
+  {key:"tl_wg_ohorn",   scope:"bereich",sparte:"pflege",bereich:"wg_ohorn",
+   l:{m:"Teamleitung WG Ohorn",w:"Teamleitung WG Ohorn",d:"Teamleitung WG Ohorn"}},
+  {key:"tl_wg_kamenz",  scope:"bereich",sparte:"pflege",bereich:"wg_kamenz",
+   l:{m:"Teamleitung WG Kamenz",w:"Teamleitung WG Kamenz",d:"Teamleitung WG Kamenz"}},
+  {key:"tl_ip_steina",  scope:"bereich",sparte:"pflege",bereich:"ip_steina",
+   l:{m:"Teamleitung Intensivpflege Steina",w:"Teamleitung Intensivpflege Steina",d:"Teamleitung Intensivpflege Steina"}},
+  {key:"tl_ip_kamenz",  scope:"bereich",sparte:"pflege",bereich:"ip_kamenz",
+   l:{m:"Teamleitung Intensivpflege Kamenz",w:"Teamleitung Intensivpflege Kamenz",d:"Teamleitung Intensivpflege Kamenz"}},
+
+  // ── Pflege: Mitarbeiter ─────────────────────────────────────────
+  {key:"pflege_ambulant",   scope:"selbst",sparte:"pflege",bereich:"ambulant",
+   l:{m:"Pflegekraft Ambulante Pflege",w:"Pflegekraft Ambulante Pflege",d:"Pflegekraft Ambulante Pflege"}},
+  {key:"pflege_wg_koenigsbrueck",scope:"selbst",sparte:"pflege",bereich:"wg_koenigsbrueck",
+   l:{m:"Pflegekraft WG Königsbrück",w:"Pflegekraft WG Königsbrück",d:"Pflegekraft WG Königsbrück"}},
+  {key:"pflege_wg_ohorn",   scope:"selbst",sparte:"pflege",bereich:"wg_ohorn",
+   l:{m:"Pflegekraft WG Ohorn",w:"Pflegekraft WG Ohorn",d:"Pflegekraft WG Ohorn"}},
+  {key:"pflege_wg_kamenz",  scope:"selbst",sparte:"pflege",bereich:"wg_kamenz",
+   l:{m:"Pflegekraft WG Kamenz",w:"Pflegekraft WG Kamenz",d:"Pflegekraft WG Kamenz"}},
+  {key:"pflege_ip_steina",  scope:"selbst",sparte:"pflege",bereich:"ip_steina",
+   l:{m:"Pflegekraft Intensivpflege Steina",w:"Pflegekraft Intensivpflege Steina",d:"Pflegekraft Intensivpflege Steina"}},
+  {key:"pflege_ip_kamenz",  scope:"selbst",sparte:"pflege",bereich:"ip_kamenz",
+   l:{m:"Pflegekraft Intensivpflege Kamenz",w:"Pflegekraft Intensivpflege Kamenz",d:"Pflegekraft Intensivpflege Kamenz"}},
+  // Haushaltspflege: keine eigene Teamleitung → Pflegedienstleitung ist zuständig
+  {key:"haushaltspflege",scope:"selbst",sparte:"pflege",bereich:"haushalt",
+   l:{m:"Haushaltspflege",w:"Haushaltspflege",d:"Haushaltspflege"}},
 ];
+const SPARTEN={leitung:"Leitung & Verwaltung",therapie:"Therapie",pflege:"Pflege"};
 const POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
-const BEREICH_NAME={physio:"Physiotherapie",ergo:"Ergotherapie",trainer:"Trainer",logo:"Logopädie",podo:"Podologie",rezeption:"Rezeption"};
-function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",bereich:null,l:null};}
+const BEREICH_NAME={
+  buchhaltung:"Buchhaltung",
+  physio_koenigsbrueck:"Physiotherapie Königsbrück",
+  physio_pulsnitz:"Physiotherapie Pulsnitz",
+  physio_kamenz:"Physiotherapie Kamenz",
+  ergo:"Ergotherapie",logo:"Logopädie",podo:"Podologie",trainer:"Trainer",
+  rezeption:"Rezeption",reinigung:"Reinigung",
+  ambulant:"Ambulante Pflege",
+  wg_koenigsbrueck:"WG Königsbrück",wg_ohorn:"WG Ohorn",wg_kamenz:"WG Kamenz",
+  ip_steina:"Intensivpflege Steina",ip_kamenz:"Intensivpflege Kamenz",
+  haushalt:"Haushaltspflege",
+};
+function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",sparte:null,bereich:null,l:null};}
+// Auswahl für die Bereichsfilter: Alle, Sparten, dann alle belegten Bereiche
+const FILTER_OPTIONEN=[
+  ["alle","👥 Alle Bereiche"],
+  ["sparte:therapie","🩺 Therapie (gesamt)"],
+  ["sparte:pflege","🏠 Pflege (gesamt)"],
+  ["leitung","🔑 Leitung"],
+  ...POSITIONEN.filter(p=>p.bereich&&p.scope==="selbst")
+    .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
+    .filter((v,i,arr)=>arr.findIndex(x=>x[0]===v[0])===i),
+];
+// Passt eine Person zum gewählten Filterwert?
+function passtZuFilter(u,filter){
+  if(!filter||filter==="alle")return true;
+  const pi=posInfo(u?.position);
+  if(filter==="leitung")return pi.scope==="alle"||pi.scope==="sparte";
+  if(filter.startsWith("sparte:"))return pi.sparte===filter.slice(7);
+  return pi.bereich===filter;
+}
 // Anzeigename je nach Geschlecht; unbekannte (alte) Werte werden unverändert gezeigt
 function posLabel(key,geschlecht){
   const p=POS_MAP[key];
@@ -256,14 +356,18 @@ function canManage(actor,target){
   if(!actor||!target)return false;
   if(actor.id===target.id)return true;
   if(actor.role==="admin")return true;
-  const a=posInfo(actor.position);
-  if(a.scope==="alle")return true;
-  if(a.scope==="bereich")return posInfo(target.position).bereich===a.bereich;
+  const a=posInfo(actor.position),z=posInfo(target.position);
+  if(a.scope==="alle")return true;                       // Geschäftsleitung
+  // Praxis- bzw. Pflegedienstleitung: gesamte eigene Sparte, aber niemals
+  // Geschäftsleitung oder Buchhaltung (Sparte "leitung")
+  if(a.scope==="sparte")return !!a.sparte&&z.sparte===a.sparte;
+  if(a.scope==="bereich")return !!a.bereich&&z.bereich===a.bereich;
   return false;
 }
 // Darf "actor" über den Antrag von "target" entscheiden? Der eigene Antrag zählt nicht.
 function darfEntscheiden(actor,target){
   if(!actor||!target)return false;
+  // Über den eigenen Antrag entscheidet nur die Geschäftsleitung
   if(actor.id===target.id)return actor.role==="admin"||posInfo(actor.position).scope==="alle";
   return canManage(actor,target);
 }
@@ -272,7 +376,7 @@ function istLeitung(p){
   if(!p)return false;
   if(p.role==="admin")return true;
   const s=posInfo(p.position).scope;
-  return s==="alle"||s==="bereich";
+  return s==="alle"||s==="sparte"||s==="bereich";
 }
 // ─── Arbeitszeit ─────────────────────────────────────────────────────────────
 const WOCHENTAGE_AUSWAHL=[1,2,3,4,5,6];
@@ -362,6 +466,18 @@ function tageBisGeburtstag(iso){
 // Eintrag ergänzen und die Version hochzählen — die App zeigt dann allen
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
+  {
+    version:"2026.08.12",
+    datum:"12. August 2026",
+    titel:"Sparten Therapie und Pflege",
+    punkte:[
+      "Der Urlaubsplaner unterscheidet jetzt zwischen den Sparten Therapie und Pflege.",
+      "Die Physiotherapie ist nach Standorten getrennt: Königsbrück, Pulsnitz und Kamenz mit jeweils eigener Teamleitung.",
+      "Neu in der Pflege: Pflegedienstleitung sowie Teamleitungen für Ambulante Pflege, WG Königsbrück, WG Ohorn, WG Kamenz, Intensivpflege Steina und Intensivpflege Kamenz.",
+      "Neue Positionen: Buchhaltung, Reinigungskraft und Haushaltspflege.",
+      "Die Praxisleitung betreut die gesamte Therapie, die Pflegedienstleitung die gesamte Pflege. Geschäftsleitung und Buchhaltung sieht ausschließlich die Geschäftsleitung.",
+    ],
+  },
   {
     version:"2026.08.11",
     datum:"11. August 2026",
@@ -454,7 +570,7 @@ export default function App(){
   const isLeitung=istLeitung(profile);
   AKT_BL=bundesland;   // Feiertagslogik der Urlaubsberechnung auf das gewählte Bundesland setzen
   // Nur Geschäfts-/Praxisleitung und Administratoren sehen alle Bereiche und dürfen umschalten
-  const darfBereichFiltern=isAdmin||posInfo(profile?.position).scope==="alle";
+  const darfBereichFiltern=isAdmin||["alle","sparte"].includes(posInfo(profile?.position).scope);
 
   // ── Session-Init ──────────────────────────────────────────────────
   // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
@@ -1080,9 +1196,8 @@ export default function App(){
   // Gehört diese Person zum aktuell gewählten Bereichsfilter?
   function imKalenderFilter(u){
     if(!u)return false;
-    if(!darfBereichFiltern||kalBereich==="alle")return true;
-    if(kalBereich==="leitung")return posInfo(u.position).scope==="alle";
-    return posInfo(u.position).bereich===kalBereich;
+    if(!darfBereichFiltern)return true;
+    return passtZuFilter(u,kalBereich);
   }
   function calEntries(){
     const sichtbar=entries.filter(e=>{
@@ -1303,13 +1418,13 @@ export default function App(){
               style={{background:kalBereich==="alle"?"#f8faf0":"#e8f3d6",border:"1.5px solid "+(kalBereich==="alle"?"#c8d890":"#7ab529"),
                 borderRadius:14,padding:"5px 10px",fontSize:12,fontWeight:700,
                 color:"#4a6b0f",maxWidth:"100%",outline:"none"}}>
-              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
-                <option key={k} value={k}>{k==="alle"?"Alle Bereiche":lbl.replace(/^[^ ]+ /,"")}</option>
+              {FILTER_OPTIONEN.map(([k,lbl])=>(
+                <option key={k} value={k}>{lbl.replace(/^[^\w]+ /,"")}</option>
               ))}
             </select>
           ):(
             <div style={S.legRow}>
-              {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
+              {FILTER_OPTIONEN.map(([k,lbl])=>(
                 <button key={k} onClick={()=>setKalBereich(k)} title={"Nur "+lbl+" anzeigen"} style={{
                   background:kalBereich===k?"#e8f3d6":"none",cursor:"pointer",
                   border:"1px solid "+(kalBereich===k?"#7ab529":"#cbd5e1"),
@@ -1973,11 +2088,7 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
   const erfuellt=eigene?eigene.anteil>=MINDEST_ANTEIL:true;
   const abgelaufen=!rest;
   const [bereich,setBereich]=useState("alle");
-  const gefilterteLeute=offeneLeute.filter(u=>{
-    if(!darfBereichFiltern||bereich==="alle")return true;
-    if(bereich==="leitung")return posInfo(u.position).scope==="alle";
-    return posInfo(u.position).bereich===bereich;
-  });
+  const gefilterteLeute=offeneLeute.filter(u=>!darfBereichFiltern||passtZuFilter(u,bereich));
   // Nach Fristablauf und bei erfüllter Planung nichts anzeigen, wenn auch im Team alles passt
   if(abgelaufen&&erfuellt&&offeneLeute.length===0)return null;
   const dringend=rest&&rest.tage<=30;
@@ -2042,10 +2153,8 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
                 style={{marginLeft:"auto",background:bereich==="alle"?"#fff":"#fef3c7",
                   border:"1px solid #fcd9b0",borderRadius:12,padding:"3px 9px",
                   fontSize:11,fontWeight:700,color:"#92400e",outline:"none"}}>
-                {[["alle","Alle Bereiche"],["leitung","Leitung"],["physio","Physiotherapie"],
-                  ["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],
-                  ["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,l])=>(
-                  <option key={k} value={k}>{l}</option>
+                {FILTER_OPTIONEN.map(([k,l])=>(
+                  <option key={k} value={k}>{l.replace(/^[^\w]+ /,"")}</option>
                 ))}
               </select>
             )}
@@ -2199,10 +2308,8 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
   const schmal=useSchmal();
   // Gehört die Person zum gewählten Fachbereich?
   const passt=uid=>{
-    if(!darfBereichFiltern||bereich==="alle")return true;
-    const pos=profiles.find(p=>p.id===uid)?.position;
-    if(bereich==="leitung")return posInfo(pos).scope==="alle";
-    return posInfo(pos).bereich===bereich;
+    if(!darfBereichFiltern)return true;
+    return passtZuFilter(profiles.find(p=>p.id===uid),bereich);
   };
   const rich=entries
     .filter(e=>(e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr))&&passt(e.user_id))
@@ -2351,13 +2458,13 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
           style={{marginBottom:14,background:bereich==="alle"?"#f8faf0":"#e8f3d6",
             border:"1.5px solid "+(bereich==="alle"?"#c8d890":"#7ab529"),borderRadius:14,
             padding:"6px 12px",fontSize:13,fontWeight:700,color:"#4a6b0f",outline:"none",maxWidth:"100%"}}>
-          {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
-            <option key={k} value={k}>{k==="alle"?"Alle Bereiche":lbl.replace(/^[^ ]+ /,"")}</option>
+          {FILTER_OPTIONEN.map(([k,lbl])=>(
+            <option key={k} value={k}>{lbl.replace(/^[^\w]+ /,"")}</option>
           ))}
         </select>
       ):(
         <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:14}}>
-          {[["alle","👥 Alle"],["leitung","🔑 Leitung"],["physio","Physiotherapie"],["ergo","Ergotherapie"],["logo","Logopädie"],["podo","Podologie"],["trainer","Trainer"],["rezeption","Rezeption"]].map(([k,lbl])=>(
+          {FILTER_OPTIONEN.map(([k,lbl])=>(
             <button key={k} onClick={()=>setBereich(k)} style={{
               background:bereich===k?"#e8f3d6":"none",cursor:"pointer",
               border:"1px solid "+(bereich===k?"#7ab529":"#cbd5e1"),
@@ -3172,7 +3279,13 @@ Thomas Keilig`;
               </div>
               <div><label style={S.lbl}>Position</label>
                 <select style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))} disabled={!isAdmin}>
-                  {POSITIONEN.map(pos=><option key={pos.key} value={pos.key}>{posLabel(pos.key,f.geschlecht)}</option>)}
+                  {Object.entries(SPARTEN).map(([sp,lbl])=>(
+                    <optgroup key={sp} label={lbl}>
+                      {POSITIONEN.filter(pos=>pos.sparte===sp).map(pos=>(
+                        <option key={pos.key} value={pos.key}>{posLabel(pos.key,f.geschlecht)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                   {!POS_MAP[f.position]&&<option value={f.position}>{f.position} (alt)</option>}
                 </select>
               </div>
@@ -3220,10 +3333,12 @@ Thomas Keilig`;
             )}
             <div style={{fontSize:12,color:"#5a6b4a",background:"#f8faf0",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
               {(()=>{
-                const sc=posInfo(f.position).scope,br=posInfo(f.position).bereich;
-                if(sc==="alle")return "🔑 Darf alle Mitarbeiter und Leitungen sehen und bearbeiten.";
-                if(sc==="bereich")return "🔑 Darf alle Mitarbeiter im Bereich "+(BEREICH_NAME[br]||"–")+" bearbeiten, Urlaub eintragen, genehmigen und ablehnen.";
-                return "👤 Sieht und bearbeitet nur den eigenen Urlaub und die eigenen Stammdaten.";
+                const pi=posInfo(f.position);
+                if(pi.scope==="alle")return "🔑 Darf alle Mitarbeiter und Leitungen sehen und bearbeiten.";
+                if(pi.scope==="sparte")return "🔑 Darf alle Mitarbeiter und Teamleitungen der Sparte "+(SPARTEN[pi.sparte]||"–")+" bearbeiten, Urlaub eintragen, genehmigen und ablehnen. Geschäftsleitung und Buchhaltung bleiben unsichtbar.";
+                if(pi.scope==="bereich")return "🔑 Darf alle Mitarbeiter im Bereich "+(BEREICH_NAME[pi.bereich]||"–")+" bearbeiten, Urlaub eintragen, genehmigen und ablehnen.";
+                return "👤 Sieht und bearbeitet nur den eigenen Urlaub und die eigenen Stammdaten."
+                  +(pi.bereich?" Zuständig ist "+(BEREICH_NAME[pi.bereich]||"die Leitung")+".":"");
               })()}
             </div>
             <div style={{maxWidth:280}}><label style={S.lbl}>Geburtsdatum</label>
