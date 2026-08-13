@@ -518,6 +518,16 @@ function fristRest(planJahr){
   return{ms,tage,stunden,minuten};
 }
 
+// Nur iOS/iPadOS friert HTTPS-Verbindungen beim Wechsel in den Hintergrund ein.
+// Auf Windows, macOS und Android bleibt die Verbindung bestehen — dort darf die
+// App beim Tabwechsel weder neu laden noch den Ladebildschirm zeigen.
+const IST_IOS=(()=>{
+  if(typeof navigator==="undefined")return false;
+  const ua=navigator.userAgent||"";
+  return /iPad|iPhone|iPod/.test(ua)
+    ||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);  // iPadOS
+})();
+
 // Pauschalkraft: keine feste Wochenstundenzahl, kein fester Urlaubsanspruch
 const istPauschal=u=>!!u?.pauschal;
 const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
@@ -693,11 +703,13 @@ export default function App(){
   const dbErrorRef=useRef(false);
   const sessionRef=useRef(null);
   const profileRef=useRef(null);
+  const modalOffenRef=useRef(false);
   const ladeRef=useRef(true);
   useEffect(()=>{ladeRef.current=loading;},[loading]);
   useEffect(()=>{dbErrorRef.current=dbError;},[dbError]);
   useEffect(()=>{sessionRef.current=session;},[session]);
   useEffect(()=>{profileRef.current=profile;},[profile]);
+  useEffect(()=>{modalOffenRef.current=!!modal;},[modal]);
 
   // iOS/Safari hält nach dem Einfrieren der App die alte HTTPS-Verbindung offen,
   // obwohl sie längst tot ist. Neue Anfragen reihen sich daran an und antworten nie.
@@ -724,12 +736,9 @@ export default function App(){
       verstecktSeit.current=0;
       const sess=sessionRef.current;
 
-      // Lag die App länger als eine Minute im Hintergrund, ist die Verbindung
-      // auf iOS praktisch immer tot. Dann sofort neu laden, statt erst zu prüfen,
-      // zu scheitern und den Ladebildschirm zu zeigen.
-      if(pause>60000&&sess&&!sessionAbgelaufen(sess)){
-        if(neustartMitSchutz())return;
-      }
+      // Ist gerade ein Fenster geöffnet (z. B. Mitarbeiter anlegen)? Dann NICHTS tun,
+      // was Eingaben vernichten könnte — kein Neuladen, kein Ladebildschirm.
+      if(modalOffenRef.current)return;
 
       // Neuer Tag angebrochen, während die App im Hintergrund lag → abmelden
       if(sess&&sessionAbgelaufen(sess)){
@@ -740,17 +749,24 @@ export default function App(){
         return;
       }
 
-      // Kurzer Verbindungstest: antwortet die Datenbank noch?
+      // Nur iOS: nach längerer Pause ist die Verbindung tot → sauberer Neustart.
+      // Auf allen anderen Geräten bleibt die Verbindung bestehen.
+      if(IST_IOS&&pause>60000&&sess&&!sessionAbgelaufen(sess)){
+        if(neustartMitSchutz())return;
+      }
+
+      // Kurzer Verbindungstest — läuft im Hintergrund, ohne Ladebildschirm
       let lebt=false;
       try{
-        await mitZeitlimit(getProfile((sess||sessionAusSpeicher())?.user?.id),3000);
+        await mitZeitlimit(getProfile((sess||sessionAusSpeicher())?.user?.id),IST_IOS?3000:6000);
         lebt=true;
       }catch(e){lebt=false;}
 
       if(!lebt){
-        // Tote Verbindung → Neustart der Seite, das ist der einzig verlässliche Weg
-        if(neustartMitSchutz())return;
-        await boot();
+        // Nur iOS braucht den harten Neustart; sonst still im Hintergrund neu verbinden
+        if(IST_IOS&&neustartMitSchutz())return;
+        if(!sess||ladeRef.current||dbErrorRef.current){await boot();return;}
+        try{await loadEntries(istLeitung(profileRef.current),sess.user.id);}catch(e){}
         return;
       }
 
@@ -818,8 +834,8 @@ export default function App(){
     const t=setTimeout(()=>{
       if(!ladeRef.current)return;
       bootRef.current=false;
-      // Erst versuchen, mit einer frischen Verbindung neu zu starten
-      if(neustartMitSchutz())return;
+      // Erst versuchen, mit einer frischen Verbindung neu zu starten (nur iOS)
+      if(IST_IOS&&neustartMitSchutz())return;
       setLoading(false);setDbError(true);
     },10000);
     return()=>clearTimeout(t);
@@ -1572,7 +1588,16 @@ export default function App(){
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" jahrHinweis={year}
         initial={{...modal.data,...(istPauschal(modal.data)?{}:{urlaubstage:kontoFuer(modal.data,year).urlaubstage,resturlaub:kontoFuer(modal.data,year).resturlaub})}}
-        isAdmin usedColors={profiles.filter(p=>p.id!==modal.data?.id).map(p=>p.color).filter(Boolean)}
+        isAdmin
+        belegteFarben={(()=>{
+          // Nur Kollegen im selben Fachbereich zählen — bereichsübergreifend
+          // dürfen Farben mehrfach vorkommen.
+          const eigenerBereich=posInfo(modal.data?.position).bereich;
+          return profiles
+            .filter(p=>p.id!==modal.data?.id&&p.color
+              &&posInfo(p.position).bereich===eigenerBereich)
+            .map(p=>({farbe:p.color,name:[p.vorname,p.nachname].filter(Boolean).join(" ")}));
+        })()}
         onSave={async d=>{await handleUpdateProfile(modal.data.id,{...d,id:modal.data.id},year);setModal(null);}}
         onClose={()=>setModal(null)} onResetPw={handleAdminResetPw}/>}
       {/* Änderungsantrag für bestätigte Einträge */}
@@ -2345,12 +2370,22 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
   const yearStr=String(year);
   const [bereich,setBereich]=useState("alle");
+  const [nurPerson,setNurPerson]=useState("");   // Filter auf einen Mitarbeiter
   const schmal=useSchmal();
   // Gehört die Person zum gewählten Fachbereich?
   const passt=uid=>{
+    if(nurPerson&&uid!==nurPerson)return false;
     if(!darfBereichFiltern)return true;
     return passtZuFilter(profiles.find(p=>p.id===uid),bereich);
   };
+  // Auswahlliste: nur Personen, die zum aktuellen Bereichsfilter passen
+  const auswahlPersonen=profiles
+    .filter(p=>!darfBereichFiltern||passtZuFilter(p,bereich))
+    .sort((a,b)=>(a.nachname||"").localeCompare(b.nachname||""));
+  // Passt die gewählte Person nicht mehr zum Bereich, Auswahl aufheben
+  useEffect(()=>{
+    if(nurPerson&&!auswahlPersonen.some(p=>p.id===nurPerson))setNurPerson("");
+  },[bereich,nurPerson,auswahlPersonen.length]);
   const rich=entries
     .filter(e=>(e.von?.startsWith(yearStr)||e.bis?.startsWith(yearStr))&&passt(e.user_id))
     .map(e=>{
@@ -2515,6 +2550,26 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
               </optgroup>
             ))}
           </select>
+
+          {/* Einzelnen Mitarbeiter herausgreifen */}
+          <select value={nurPerson} onChange={e=>setNurPerson(e.target.value)}
+            title="Nur einen Mitarbeiter anzeigen"
+            style={{background:nurPerson?"#e8f3d6":"#f8faf0",
+              border:"1.5px solid "+(nurPerson?"#7ab529":"#c8d890"),borderRadius:14,
+              padding:"5px 11px",fontSize:12,fontWeight:700,color:"#4a6b0f",outline:"none",
+              maxWidth:"100%",cursor:"pointer"}}>
+            <option value="">👤 Alle Mitarbeiter</option>
+            {auswahlPersonen.map(p=>(
+              <option key={p.id} value={p.id}>{p.vorname} {p.nachname}</option>
+            ))}
+          </select>
+          {nurPerson&&(
+            <button onClick={()=>setNurPerson("")} title="Auswahl aufheben"
+              style={{background:"none",border:"none",color:"#8aaa5f",fontSize:12,
+                cursor:"pointer",textDecoration:"underline",padding:"4px 2px"}}>
+              zurücksetzen
+            </button>
+          )}
         </div>
       )}
       {/* Offene Überstundenanträge */}
@@ -3202,7 +3257,7 @@ function CopyLoginButton({email, password, vorname}){
 }
 
 // ─── User Modal ───────────────────────────────────────────────────────────────
-function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,usedColors=[],jahrHinweis=new Date().getFullYear()}){
+function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben=[],jahrHinweis=new Date().getFullYear()}){
   const[f,setF]=useState({
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
@@ -3465,22 +3520,23 @@ Thomas Keilig`;
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
               {PRESET_COLORS.map(c=>{
-                const isUsed=usedColors.includes(c)&&f.color!==c;
+                const belegtVon=belegteFarben.find(x=>x.farbe===c);
+                const isUsed=!!belegtVon&&f.color!==c;
                 return(
                   <div key={c}
-                    onClick={()=>!isUsed&&setF(p=>({...p,color:c}))}
-                    title={isUsed?"Diese Farbe ist bereits vergeben":""}
+                    onClick={()=>setF(p=>({...p,color:c}))}
+                    title={isUsed?"Im selben Fachbereich bereits vergeben an "+belegtVon.name:""}
                     style={{width:32,height:32,borderRadius:6,background:c,
-                      cursor:isUsed?"not-allowed":"pointer",
+                      cursor:"pointer",
                       display:"flex",alignItems:"center",justifyContent:"center",
-                      opacity:isUsed?0.3:1,
+                      opacity:isUsed?0.45:1,
                       boxShadow:f.color===c?"0 0 0 3px #2d3a2e, 0 0 0 5px "+c:"0 1px 3px rgba(0,0,0,0.2)",
                       transform:f.color===c?"scale(1.15)":"scale(1)",
                       transition:"all .15s",
                       position:"relative",
                     }}>
                     {f.color===c&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.5)"}}>✓</span>}
-                    {isUsed&&<span style={{color:"#fff",fontSize:14,fontWeight:900}}>✗</span>}
+                    {isUsed&&f.color!==c&&<span style={{color:"#fff",fontSize:13,fontWeight:900,textShadow:"0 1px 2px rgba(0,0,0,0.6)"}}>!</span>}
                   </div>
                 );
               })}
@@ -3490,6 +3546,17 @@ Thomas Keilig`;
                 <span style={{position:"absolute",bottom:-14,left:"50%",transform:"translateX(-50%)",fontSize:9,color:"#8aaa5f",whiteSpace:"nowrap"}}>Eigene</span>
               </div>
             </div>
+            {(()=>{
+              const konflikt=belegteFarben.find(x=>x.farbe===f.color);
+              if(!konflikt)return null;
+              return(
+                <div style={{fontSize:12,color:"#92400e",background:"#fff7ed",border:"1px solid #fcd9b0",
+                  borderRadius:6,padding:"7px 10px",marginTop:16}}>
+                  ⚠️ Diese Farbe hat im selben Fachbereich bereits <strong>{konflikt.name}</strong>.
+                  Im Kalender sind beide dann schwer auseinanderzuhalten — speichern ist trotzdem möglich.
+                </div>
+              );
+            })()}
           </div>
 
           {/* ── Zugangsdaten (separater Bereich) ── */}
