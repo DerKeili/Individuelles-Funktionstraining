@@ -89,6 +89,26 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
+// ─── Positionskatalog (nur Administratoren dürfen ändern) ────────────
+export async function getPositionen() {
+  const { data, error } = await supabase.from("positionen")
+    .select("*").order("sortierung", { ascending: true });
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
+export async function savePosition(pos) {
+  const { data, error } = await supabase.from("positionen")
+    .upsert(pos, { onConflict: "key" }).select().single();
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+export async function deletePosition(key) {
+  const { error } = await supabase.from("positionen").delete().eq("key", key);
+  if (error) throw new Error(friendlyUserError(error.message));
+}
+
 // ─── Jahreskonten (Urlaubsanspruch je Jahr) ──────────────────────────
 export async function getJahreskonten() {
   const { data, error } = await supabase.from("jahreskonten").select("*");
@@ -167,7 +187,7 @@ function friendlyUserError(msg) {
   return msg || "Unbekannter Fehler.";
 }
 
-export async function createUser({ email, password, vorname, nachname, role, position, geschlecht, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum, wochenstunden, arbeitstage_woche, pauschal }) {
+export async function createUser({ email, password, vorname, nachname, role, position, geschlecht, color, urlaubstage, ueberstunden, resturlaub, einstellungsdatum, geburtsdatum, wochenstunden, arbeitstage_woche, pauschal, fronleichnam }) {
   const mail = (email || "").trim().toLowerCase();
   if (!mail.includes("@")) throw new Error("Bitte eine gültige E-Mail-Adresse eingeben.");
   if (!password || password.length < 8) throw new Error("Das Passwort muss mindestens 8 Zeichen lang sein.");
@@ -197,6 +217,7 @@ export async function createUser({ email, password, vorname, nachname, role, pos
     p_wochenstunden: wochenstunden ?? 40,
     p_arbeitstage_woche: arbeitstage_woche ?? 5,
     p_pauschal: !!pauschal,
+    p_fronleichnam: !!fronleichnam,
   });
   if (error) throw new Error(friendlyUserError(error.message));
   return data;

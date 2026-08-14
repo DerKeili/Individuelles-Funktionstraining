@@ -9,6 +9,7 @@ import {
   createNotification, getMyNotifications, markNotificationRead,
   clearMustChangePassword,
   getJahreskonten, setJahreskonto, uebertragBerechnen,
+  getPositionen, savePosition, deletePosition,
   createUeberstundenAntrag, getUeberstundenAntraege,
   decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
@@ -229,12 +230,16 @@ const GESCHLECHTER=[["w","weiblich"],["m","männlich"],["d","divers"]];
 // scope: "alle" = darf alle bearbeiten · "bereich" = nur eigenen Fachbereich · "selbst" = nur sich
 // Sparten: "leitung" (Geschäftsleitung/Buchhaltung), "therapie", "pflege"
 // Reichweite: alle > sparte > bereich > selbst
-const POSITIONEN=[
+const STANDARD_POSITIONEN=[
   // ── Übergreifende Leitung ───────────────────────────────────────
   {key:"geschaeftsleitung",scope:"alle",  sparte:"leitung", bereich:null,
    l:{m:"Geschäftsleitung",w:"Geschäftsleitung",d:"Geschäftsleitung"}},
   {key:"buchhaltung",      scope:"selbst",sparte:"leitung", bereich:"buchhaltung",
    l:{m:"Buchhaltung",w:"Buchhaltung",d:"Buchhaltung"}},
+  {key:"hausmeister",      scope:"selbst",sparte:"leitung", bereich:"hausmeister",
+   l:{m:"Hausmeister",w:"Hausmeisterin",d:"Hausmeister/in"}},
+  {key:"taxi",             scope:"selbst",sparte:"leitung", bereich:"taxi",
+   l:{m:"Fahrdienst / Taxi",w:"Fahrdienst / Taxi",d:"Fahrdienst / Taxi"}},
 
   // ── Therapie: Leitung ───────────────────────────────────────────
   {key:"praxisleitung",    scope:"sparte",sparte:"therapie",bereich:null,
@@ -286,12 +291,8 @@ const POSITIONEN=[
    l:{m:"Teamleitung Ambulante Pflege",w:"Teamleitung Ambulante Pflege",d:"Teamleitung Ambulante Pflege"}},
   {key:"tl_wg_koenigsbrueck",scope:"bereich",sparte:"pflege",bereich:"wg_koenigsbrueck",
    l:{m:"Teamleitung WG Königsbrück",w:"Teamleitung WG Königsbrück",d:"Teamleitung WG Königsbrück"}},
-  {key:"tl_wg_ohorn",   scope:"bereich",sparte:"pflege",bereich:"wg_ohorn",
-   l:{m:"Teamleitung WG Ohorn",w:"Teamleitung WG Ohorn",d:"Teamleitung WG Ohorn"}},
   {key:"tl_wg_kamenz",  scope:"bereich",sparte:"pflege",bereich:"wg_kamenz",
    l:{m:"Teamleitung WG Kamenz",w:"Teamleitung WG Kamenz",d:"Teamleitung WG Kamenz"}},
-  {key:"tl_ip_steina",  scope:"bereich",sparte:"pflege",bereich:"ip_steina",
-   l:{m:"Teamleitung Intensivpflege Steina",w:"Teamleitung Intensivpflege Steina",d:"Teamleitung Intensivpflege Steina"}},
   {key:"tl_ip_kamenz",  scope:"bereich",sparte:"pflege",bereich:"ip_kamenz",
    l:{m:"Teamleitung Intensivpflege Kamenz",w:"Teamleitung Intensivpflege Kamenz",d:"Teamleitung Intensivpflege Kamenz"}},
 
@@ -300,21 +301,17 @@ const POSITIONEN=[
    l:{m:"Pflegekraft Ambulante Pflege",w:"Pflegekraft Ambulante Pflege",d:"Pflegekraft Ambulante Pflege"}},
   {key:"pflege_wg_koenigsbrueck",scope:"selbst",sparte:"pflege",bereich:"wg_koenigsbrueck",
    l:{m:"Pflegekraft WG Königsbrück",w:"Pflegekraft WG Königsbrück",d:"Pflegekraft WG Königsbrück"}},
-  {key:"pflege_wg_ohorn",   scope:"selbst",sparte:"pflege",bereich:"wg_ohorn",
-   l:{m:"Pflegekraft WG Ohorn",w:"Pflegekraft WG Ohorn",d:"Pflegekraft WG Ohorn"}},
   {key:"pflege_wg_kamenz",  scope:"selbst",sparte:"pflege",bereich:"wg_kamenz",
    l:{m:"Pflegekraft WG Kamenz",w:"Pflegekraft WG Kamenz",d:"Pflegekraft WG Kamenz"}},
-  {key:"pflege_ip_steina",  scope:"selbst",sparte:"pflege",bereich:"ip_steina",
-   l:{m:"Pflegekraft Intensivpflege Steina",w:"Pflegekraft Intensivpflege Steina",d:"Pflegekraft Intensivpflege Steina"}},
   {key:"pflege_ip_kamenz",  scope:"selbst",sparte:"pflege",bereich:"ip_kamenz",
    l:{m:"Pflegekraft Intensivpflege Kamenz",w:"Pflegekraft Intensivpflege Kamenz",d:"Pflegekraft Intensivpflege Kamenz"}},
   // Haushaltspflege: keine eigene Teamleitung → Pflegedienstleitung ist zuständig
   {key:"haushaltspflege",scope:"selbst",sparte:"pflege",bereich:"haushalt",
    l:{m:"Haushaltspflege",w:"Haushaltspflege",d:"Haushaltspflege"}},
 ];
-const SPARTEN={leitung:"Leitung & Verwaltung",therapie:"Therapie",pflege:"Pflege"};
-const POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
-const BEREICH_NAME={
+let SPARTEN={leitung:"Leitung & Verwaltung",therapie:"Therapie",pflege:"Pflege"};
+
+const STANDARD_BEREICH_NAME={
   buchhaltung:"Buchhaltung",
   physio_koenigsbrueck:"Physiotherapie Königsbrück",
   physio_pulsnitz:"Physiotherapie Pulsnitz",
@@ -322,25 +319,69 @@ const BEREICH_NAME={
   ergo:"Ergotherapie",logo:"Logopädie",podo:"Podologie",trainer:"Trainer",
   rezeption:"Rezeption",reinigung:"Reinigung",
   ambulant:"Ambulante Pflege",
-  wg_koenigsbrueck:"WG Königsbrück",wg_ohorn:"WG Ohorn",wg_kamenz:"WG Kamenz",
-  ip_steina:"Intensivpflege Steina",ip_kamenz:"Intensivpflege Kamenz",
+  wg_koenigsbrueck:"WG Königsbrück",wg_kamenz:"WG Kamenz",
+  ip_kamenz:"Intensivpflege Kamenz",
+  hausmeister:"Hausmeister",taxi:"Fahrdienst / Taxi",
   haushalt:"Haushaltspflege",
 };
 function posInfo(key){return POS_MAP[key]||{key:key,scope:"selbst",sparte:null,bereich:null,l:null};}
 // Auswahl für die Bereichsfilter: Alle, Sparten, dann alle belegten Bereiche
-const bereicheDerSparte=sp=>POSITIONEN
+let bereicheDerSparte=sp=>POSITIONEN
   .filter(p=>p.sparte===sp&&p.bereich&&p.scope==="selbst")
   .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
   .filter((v,i,arr)=>arr.findIndex(x=>x[0]===v[0])===i);
 // Gruppierte Auswahl für das Aufklappmenü
-const FILTER_GRUPPEN=[
-  ["Übersicht",[["alle","Alle Bereiche"],["leitung","Nur Leitung"]]],
-  ["Therapie",[["sparte:therapie","Therapie (gesamt)"],...bereicheDerSparte("therapie")]],
-  ["Pflege",  [["sparte:pflege","Pflege (gesamt)"],...bereicheDerSparte("pflege")]],
-];
+let FILTER_GRUPPEN=[];
 // Flache Liste (für Beschriftungen und Suche)
-const FILTER_OPTIONEN=FILTER_GRUPPEN.flatMap(([,opts])=>opts);
-const filterLabel=wert=>(FILTER_OPTIONEN.find(([k])=>k===wert)||[null,"Alle Bereiche"])[1];
+let FILTER_OPTIONEN=[];
+let filterLabel=wert=>(FILTER_OPTIONEN.find(([k])=>k===wert)||[null,"Alle Bereiche"])[1];
+// Der Positionskatalog kann von Administratoren in der Datenbank gepflegt werden.
+// Solange keine Daten geladen sind, gilt die eingebaute Standardliste.
+let POSITIONEN=STANDARD_POSITIONEN;
+let POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
+let BEREICH_NAME={...STANDARD_BEREICH_NAME};
+
+function baueKataloge(){
+  POS_MAP=Object.fromEntries(POSITIONEN.map(p=>[p.key,p]));
+  // Bereichsnamen: hinterlegte Bezeichnung, sonst aus der Position ableiten
+  BEREICH_NAME={...STANDARD_BEREICH_NAME};
+  POSITIONEN.forEach(p=>{
+    if(p.bereich&&!BEREICH_NAME[p.bereich])
+      BEREICH_NAME[p.bereich]=p.bereich_name||p.bereich;
+    if(p.bereich&&p.bereich_name)BEREICH_NAME[p.bereich]=p.bereich_name;
+  });
+  bereicheDerSparte=sp=>POSITIONEN
+    .filter(p=>p.sparte===sp&&p.bereich&&p.scope==="selbst")
+    .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
+    .filter((v,i,arr)=>arr.findIndex(x=>x[0]===v[0])===i);
+  FILTER_GRUPPEN=[
+    ["Übersicht",[["alle","Alle Bereiche"],["leitung","Nur Leitung"]]],
+    ...Object.entries(SPARTEN)
+      .filter(([sp])=>sp!=="leitung")
+      .map(([sp,lbl])=>[lbl,[["sparte:"+sp,lbl+" (gesamt)"],...bereicheDerSparte(sp)]]),
+    ["Leitung & Verwaltung",bereicheDerSparte("leitung")],
+  ].filter(([,opts])=>opts.length>0);
+  FILTER_OPTIONEN=FILTER_GRUPPEN.flatMap(([,opts])=>opts);
+  filterLabel=wert=>(FILTER_OPTIONEN.find(([k])=>k===wert)||[null,"Alle Bereiche"])[1];
+}
+
+baueKataloge();   // Standardkatalog sofort aufbauen
+
+// Positionen aus der Datenbank übernehmen (Zeilen der Tabelle "positionen")
+function uebernehmePositionen(zeilen){
+  if(!Array.isArray(zeilen)||zeilen.length===0)return false;
+  POSITIONEN=zeilen
+    .slice()
+    .sort((a,b)=>(a.sortierung||0)-(b.sortierung||0))
+    .map(z=>({
+      key:z.key, scope:z.scope, sparte:z.sparte, bereich:z.bereich||null,
+      bereich_name:z.bereich_name||null, geschuetzt:!!z.geschuetzt,
+      l:{m:z.label_m||z.key, w:z.label_w||z.label_m||z.key, d:z.label_d||z.label_m||z.key},
+    }));
+  baueKataloge();
+  return true;
+}
+
 // Passt eine Person zum gewählten Filterwert?
 function passtZuFilter(u,filter){
   if(!filter||filter==="alle")return true;
@@ -470,6 +511,16 @@ function tageBisGeburtstag(iso){
 // Eintrag ergänzen und die Version hochzählen — die App zeigt dann allen
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
+  {
+    version:"2026.08.14",
+    datum:"14. August 2026",
+    titel:"Positionen selbst verwalten",
+    punkte:[
+      "Administratoren können Positionen jetzt selbst anlegen, umbenennen und löschen — unter Mitarbeiter über „⚙️ Positionen“.",
+      "Neue Positionen: Hausmeister und Fahrdienst/Taxi. Beide werden ausschließlich von der Geschäftsleitung betreut.",
+      "Entfallen sind WG Ohorn und Intensivpflege Steina.",
+    ],
+  },
   {
     version:"2026.08.12",
     datum:"12. August 2026",
@@ -1013,7 +1064,13 @@ export default function App(){
   async function ladeJahreskonten(){
     try{setJahreskonten(await getJahreskonten());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
   }
-  useEffect(()=>{if(session&&profile){ladeUeAntraege();ladeJahreskonten();}},[session,profile]);
+  const [posTick,setPosTick]=useState(0);   // erzwingt Neuaufbau nach Katalogänderung
+  async function ladePositionen(){
+    try{
+      if(uebernehmePositionen(await getPositionen()))setPosTick(t=>t+1);
+    }catch(e){/* Tabelle fehlt → eingebauter Standardkatalog bleibt aktiv */}
+  }
+  useEffect(()=>{if(session&&profile){ladeUeAntraege();ladeJahreskonten();ladePositionen();}},[session,profile]);
 
   async function handleUeAntrag(stunden,grund){
     try{
@@ -1529,7 +1586,7 @@ export default function App(){
       )}
 
       {/* MAIN */}
-      <main style={S.main} onClick={()=>setTooltip(null)}>
+      <main key={"main"+posTick} style={S.main} onClick={()=>setTooltip(null)}>
         {/* Abgabefrist für die Jahresplanung */}
         <FristBanner planJahr={planJahr} tick={fristTick}
           eigene={profile&&!istPauschal(profile)?planungFuer(pwu.find(u=>u.id===session.user.id)||profile,planJahr):null}
@@ -1538,7 +1595,7 @@ export default function App(){
           onPlanen={()=>{if(year!==planJahr)setYear(planJahr);setView(isAdmin?"eintraege":"meinurlaub");}}/>
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
-        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
+        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onPositionen={isAdmin?()=>setModal({type:"positionen"}):null} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
@@ -1585,6 +1642,9 @@ export default function App(){
         onDone={async(reqId)=>{if(reqId){try{await dismissResetRequest(reqId);}catch(e){}}setDashRefresh(k=>k+1);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
         onClose={()=>setModal(null)}
       />}
+      {modal?.type==="positionen"&&<PosVerwaltung profiles={profiles}
+        onClose={()=>setModal(null)}
+        onGeaendert={async()=>{await ladePositionen();}}/>}
       {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" jahrHinweis={year}
         initial={{...modal.data,...(istPauschal(modal.data)?{}:{urlaubstage:kontoFuer(modal.data,year).urlaubstage,resturlaub:kontoFuer(modal.data,year).resturlaub})}}
@@ -2282,10 +2342,196 @@ function SpeichernFrage({onSpeichern,onVerwerfen,onZurueck,busy}){
   );
 }
 
+// ─── Positionen verwalten (nur Administratoren) ──────────────────────────────
+function PosVerwaltung({onClose,onGeaendert,profiles}){
+  const [liste,setListe]=useState([]);
+  const [laden,setLaden]=useState(true);
+  const [fehler,setFehler]=useState("");
+  const [bearbeitet,setBearbeitet]=useState(null);   // Position im Formular
+  const [busy,setBusy]=useState(false);
+
+  async function neuLaden(){
+    setLaden(true);setFehler("");
+    try{setListe(await getPositionen());}
+    catch(e){setFehler(e.message);}
+    finally{setLaden(false);}
+  }
+  useEffect(()=>{neuLaden();},[]);
+
+  const leer={key:"",label_m:"",label_w:"",label_d:"",sparte:"therapie",
+              bereich:"",bereich_name:"",scope:"selbst",sortierung:900};
+  const anzahlMitarbeiter=k=>profiles.filter(p=>p.position===k).length;
+
+  async function speichern(){
+    const p=bearbeitet;
+    if(!p.key.trim()){setFehler("Bitte ein Kürzel angeben (z. B. hausmeister).");return;}
+    if(!/^[a-z0-9_]+$/.test(p.key)){setFehler("Das Kürzel darf nur Kleinbuchstaben, Ziffern und _ enthalten.");return;}
+    if(!p.label_m.trim()){setFehler("Bitte eine Bezeichnung angeben.");return;}
+    if(p.scope==="bereich"&&!p.bereich.trim()){setFehler("Teamleitungen brauchen einen Bereich.");return;}
+    setBusy(true);setFehler("");
+    try{
+      await savePosition({...p,
+        key:p.key.trim(),
+        bereich:p.bereich.trim()||null,
+        bereich_name:p.bereich_name.trim()||null,
+        label_w:p.label_w.trim()||p.label_m.trim(),
+        label_d:p.label_d.trim()||p.label_m.trim(),
+        sortierung:parseInt(p.sortierung)||900});
+      setBearbeitet(null);
+      await neuLaden();
+      await onGeaendert();
+    }catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+
+  async function loeschen(pos){
+    const n=anzahlMitarbeiter(pos.key);
+    if(n>0){
+      window.alert("Diese Position ist noch "+n+" Mitarbeiter"+(n===1?"":"n")+
+        " zugewiesen. Bitte diese zuerst auf eine andere Position umstellen.");
+      return;
+    }
+    if(!window.confirm("Position „"+pos.label_m+"“ wirklich löschen?"))return;
+    setBusy(true);
+    try{await deletePosition(pos.key);await neuLaden();await onGeaendert();}
+    catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+
+  const nachSparte=sp=>liste.filter(p=>p.sparte===sp)
+    .sort((a,b)=>(a.sortierung||0)-(b.sortierung||0));
+
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,width:700}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+            ⚙️ Positionen verwalten
+          </span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+
+        <div style={S.mBd}>
+          {fehler&&(
+            <div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",border:"1px solid #fca5a5",
+              borderRadius:6,padding:"8px 10px",marginBottom:12}}>⚠️ {fehler}</div>
+          )}
+
+          {bearbeitet?(
+            <div style={{background:"#f8faf0",border:"1.5px solid #7ab529",borderRadius:10,padding:14,marginBottom:14}}>
+              <div style={{fontWeight:700,fontSize:14,color:"#2d3a2e",marginBottom:10}}>
+                {liste.some(x=>x.key===bearbeitet.key)?"Position bearbeiten":"Neue Position"}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div><label style={S.lbl}>Kürzel (technisch)</label>
+                  <input style={{...S.inp,...(liste.some(x=>x.key===bearbeitet.key)?{background:"#f1f5f0",color:"#8aaa5f"}:{})}}
+                    value={bearbeitet.key} readOnly={liste.some(x=>x.key===bearbeitet.key)}
+                    placeholder="z. B. hausmeister"
+                    onChange={e=>setBearbeitet(p=>({...p,key:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"")}))}/>
+                </div>
+                <div><label style={S.lbl}>Sparte</label>
+                  <select style={S.inp} value={bearbeitet.sparte}
+                    onChange={e=>setBearbeitet(p=>({...p,sparte:e.target.value}))}>
+                    {Object.entries(SPARTEN).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                <div><label style={S.lbl}>Bezeichnung (männlich)</label>
+                  <input style={S.inp} value={bearbeitet.label_m} placeholder="Hausmeister"
+                    onChange={e=>setBearbeitet(p=>({...p,label_m:e.target.value}))}/>
+                </div>
+                <div><label style={S.lbl}>weiblich</label>
+                  <input style={S.inp} value={bearbeitet.label_w} placeholder="Hausmeisterin"
+                    onChange={e=>setBearbeitet(p=>({...p,label_w:e.target.value}))}/>
+                </div>
+                <div><label style={S.lbl}>divers</label>
+                  <input style={S.inp} value={bearbeitet.label_d} placeholder="Hausmeister/in"
+                    onChange={e=>setBearbeitet(p=>({...p,label_d:e.target.value}))}/>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                <div><label style={S.lbl}>Reichweite</label>
+                  <select style={S.inp} value={bearbeitet.scope}
+                    onChange={e=>setBearbeitet(p=>({...p,scope:e.target.value}))}>
+                    <option value="selbst">Mitarbeiter (nur sich selbst)</option>
+                    <option value="bereich">Teamleitung (eigener Bereich)</option>
+                    <option value="sparte">Leitung (ganze Sparte)</option>
+                    <option value="alle">Geschäftsleitung (alle)</option>
+                  </select>
+                </div>
+                <div><label style={S.lbl}>Bereich (Kürzel)</label>
+                  <input style={S.inp} value={bearbeitet.bereich} placeholder="z. B. hausmeister"
+                    onChange={e=>setBearbeitet(p=>({...p,bereich:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"")}))}/>
+                </div>
+                <div><label style={S.lbl}>Reihenfolge</label>
+                  <input style={S.inp} type="number" value={bearbeitet.sortierung}
+                    onChange={e=>setBearbeitet(p=>({...p,sortierung:e.target.value}))}/>
+                </div>
+              </div>
+              <div style={{fontSize:11,color:"#8aaa5f",marginBottom:10,lineHeight:1.5}}>
+                Der <strong>Bereich</strong> verbindet Teamleitung und Mitarbeiter: Beide brauchen dasselbe
+                Bereichskürzel, damit die Leitung zuständig ist. Bleibt das Feld leer, ist nur die
+                Sparten- bzw. Geschäftsleitung zuständig.
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy} onClick={speichern}>
+                  {busy?"Speichert…":"Speichern"}
+                </button>
+                <button style={S.canBtn} onClick={()=>{setBearbeitet(null);setFehler("");}}>Abbrechen</button>
+              </div>
+            </div>
+          ):(
+            <button style={{...S.addBtn,marginBottom:14}}
+              onClick={()=>{setBearbeitet(leer);setFehler("");}}>+ Neue Position</button>
+          )}
+
+          {laden?<div style={{fontSize:13,color:"#8aaa5f"}}>Wird geladen…</div>:
+            Object.entries(SPARTEN).map(([sp,lbl])=>(
+              <div key={sp} style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:6,
+                  textTransform:"uppercase",letterSpacing:"0.05em"}}>{lbl}</div>
+                {nachSparte(sp).length===0?(
+                  <div style={{fontSize:12,color:"#8aaa5f"}}>Keine Positionen.</div>
+                ):nachSparte(sp).map(pos=>{
+                  const anzahl=anzahlMitarbeiter(pos.key);
+                  return(
+                    <div key={pos.key} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",
+                      borderBottom:"1px solid #edf5ee",padding:"7px 0"}}>
+                      <span style={{fontSize:13,color:"#2d3a2e",fontWeight:600,flex:"1 1 200px",minWidth:0}}>
+                        {pos.label_m}
+                        <span style={{fontSize:11,color:"#8aaa5f",fontWeight:400}}>
+                          {" · "}{pos.scope==="alle"?"alle":pos.scope==="sparte"?"ganze Sparte":
+                            pos.scope==="bereich"?"Bereich "+(pos.bereich||"–"):"nur sich selbst"}
+                          {anzahl>0?" · "+anzahl+" MA":""}
+                        </span>
+                      </span>
+                      <button style={S.icnBtn} title="Bearbeiten"
+                        onClick={()=>{setBearbeitet({...leer,...pos,
+                          bereich:pos.bereich||"",bereich_name:pos.bereich_name||"",
+                          label_w:pos.label_w||"",label_d:pos.label_d||""});setFehler("");}}>✏️</button>
+                      <button style={{...S.icnBtn,color:anzahl>0?"#cbd5e1":"#f87171"}}
+                        title={anzahl>0?"Noch zugewiesen":"Löschen"}
+                        onClick={()=>loeschen(pos)}>🗑</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+        </div>
+
+        <div style={S.mFt}>
+          <button style={S.canBtn} onClick={onClose}>Schließen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
-function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
+function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositionen}){
   const schmal=useSchmal();
   const zahlen=u=>{
     const e=u.entries||[];
@@ -2297,7 +2543,10 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,gap:10,flexWrap:"wrap"}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
-        {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Anlegen</button>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {onPositionen&&<button style={S.canBtn} onClick={onPositionen}>⚙️ Positionen</button>}
+          {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Anlegen</button>}
+        </div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {users.map(u=>{
@@ -2337,7 +2586,10 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false}){
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
-        {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {onPositionen&&<button style={S.canBtn} onClick={onPositionen}>⚙️ Positionen</button>}
+          {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>}
+        </div>
       </div>
       <div style={{background:"#fff",borderRadius:12,border:"1px solid #d5e8a0",overflowX:"auto",WebkitOverflowScrolling:"touch",boxShadow:"0 2px 8px rgba(61,122,79,0.06)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
