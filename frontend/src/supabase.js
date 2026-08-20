@@ -89,6 +89,17 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
+// ─── Änderungsprotokoll (nur Administratoren) ────────────────────────
+export async function getProtokoll({ limit = 500, von = null, bis = null } = {}) {
+  let q = supabase.from("aenderungsprotokoll").select("*")
+    .order("zeitpunkt", { ascending: false }).limit(limit);
+  if (von) q = q.gte("zeitpunkt", von);
+  if (bis) q = q.lte("zeitpunkt", bis);
+  const { data, error } = await q;
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
 // ─── Positionskatalog (nur Administratoren dürfen ändern) ────────────
 export async function getPositionen() {
   const { data, error } = await supabase.from("positionen")

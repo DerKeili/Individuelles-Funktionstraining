@@ -9,7 +9,7 @@ import {
   createNotification, getMyNotifications, markNotificationRead,
   clearMustChangePassword,
   getJahreskonten, setJahreskonto, uebertragBerechnen,
-  getPositionen, savePosition, deletePosition,
+  getPositionen, savePosition, deletePosition, getProtokoll,
   createUeberstundenAntrag, getUeberstundenAntraege,
   decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
@@ -511,6 +511,17 @@ function tageBisGeburtstag(iso){
 // Eintrag ergänzen und die Version hochzählen — die App zeigt dann allen
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
+  {
+    version:"2026.08.15",
+    datum:"15. August 2026",
+    titel:"Änderungsprotokoll",
+    punkte:[
+      "Administratoren finden unter „🔍 Protokoll“ eine lückenlose Aufzeichnung aller Änderungen mit Datum, Uhrzeit und Benutzername.",
+      "Erfasst werden Mitarbeiterdaten, Urlaubseinträge, Genehmigungen, Überstundenanträge, Urlaubskonten und Positionen.",
+      "Das Protokoll lässt sich durchsuchen, nach jeder Spalte sortieren und als CSV-Datei ausgeben.",
+      "Vor dem Bearbeiten der Positionen erscheint jetzt ein Warnhinweis zu den Folgen einer Änderung.",
+    ],
+  },
   {
     version:"2026.08.14",
     datum:"14. August 2026",
@@ -1399,7 +1410,9 @@ export default function App(){
   const navItems=isLeitung
     ?[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["mitarbeiter","👥 Mitarbeiter"],["eintraege","📋 Einträge"],
       ...(isAdmin?[]:[["meinurlaub","🏖 Mein Urlaub"]]),
-      ["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]]
+      ["feiertage","🗓 Ferien & Feiertage"],
+      ...(isAdmin?[["protokoll","🔍 Protokoll"]]:[]),
+      ["profil","👤 Profil"]]
     :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]];
 
   const pwu=profilesWithEntries();
@@ -1598,6 +1611,7 @@ export default function App(){
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onPositionen={isAdmin?()=>setModal({type:"positionen"}):null} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
+        {view==="protokoll"&&isAdmin&&<ProtokollView/>}
         {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
       </main>
@@ -2344,6 +2358,7 @@ function SpeichernFrage({onSpeichern,onVerwerfen,onZurueck,busy}){
 
 // ─── Positionen verwalten (nur Administratoren) ──────────────────────────────
 function PosVerwaltung({onClose,onGeaendert,profiles}){
+  const [gewarnt,setGewarnt]=useState(false);   // Warnhinweis bestätigt?
   const [liste,setListe]=useState([]);
   const [laden,setLaden]=useState(true);
   const [fehler,setFehler]=useState("");
@@ -2356,7 +2371,8 @@ function PosVerwaltung({onClose,onGeaendert,profiles}){
     catch(e){setFehler(e.message);}
     finally{setLaden(false);}
   }
-  useEffect(()=>{neuLaden();},[]);
+  // Erst nach Bestätigung des Warnhinweises laden
+  useEffect(()=>{if(gewarnt)neuLaden();},[gewarnt]);
 
   const leer={key:"",label_m:"",label_w:"",label_d:"",sparte:"therapie",
               bereich:"",bereich_name:"",scope:"selbst",sortierung:900};
@@ -2400,6 +2416,43 @@ function PosVerwaltung({onClose,onGeaendert,profiles}){
 
   const nachSparte=sp=>liste.filter(p=>p.sparte===sp)
     .sort((a,b)=>(a.sortierung||0)-(b.sortierung||0));
+
+  // ── Warnhinweis vor dem Betreten ──────────────────────────────────
+  if(!gewarnt)return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,maxWidth:540}}>
+        <div style={{...S.mHd,borderBottom:"1px solid #fcd9b0",background:"#fff7ed"}}>
+          <span style={{fontWeight:800,fontSize:16,color:"#92400e",fontFamily:"'Nunito',sans-serif"}}>
+            ⚠️ Achtung: Änderungen wirken sofort
+          </span>
+        </div>
+        <div style={{...S.mBd,fontSize:13,color:"#2d3a2e",lineHeight:1.6}}>
+          <p style={{marginTop:0}}>
+            Die Positionen steuern, <strong>wer wessen Urlaub sehen und genehmigen darf</strong>.
+            Änderungen hier greifen unmittelbar für alle Benutzer.
+          </p>
+          <div style={{background:"#fff7ed",border:"1px solid #fcd9b0",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+            <div style={{fontWeight:700,color:"#92400e",marginBottom:6,fontSize:13}}>Bitte beachte:</div>
+            <ul style={{margin:0,paddingLeft:18,display:"flex",flexDirection:"column",gap:6,color:"#b45309",fontSize:12.5}}>
+              <li>Wird die <strong>Reichweite</strong> geändert, erhalten oder verlieren Mitarbeiter sofort Zugriff auf fremde Daten.</li>
+              <li>Wird das <strong>Bereichskürzel</strong> geändert, passt die Zuordnung zwischen Teamleitung und Mitarbeitern nicht mehr — die Leitung verliert die Zuständigkeit.</li>
+              <li>Eine <strong>gelöschte Position</strong> lässt sich nicht wiederherstellen. Positionen mit zugewiesenen Mitarbeitern sind gesperrt.</li>
+              <li>Geschäftsleitung, Praxisleitung und Pflegedienstleitung sind fest hinterlegt und können nicht gelöscht werden.</li>
+            </ul>
+          </div>
+          <div style={{fontSize:12,color:"#8aaa5f"}}>
+            Alle Änderungen werden mit Datum, Uhrzeit und Benutzername im Änderungsprotokoll festgehalten.
+          </div>
+        </div>
+        <div style={S.mFt}>
+          <button style={{...S.savBtn,background:"#f0932b"}} onClick={()=>setGewarnt(true)}>
+            Verstanden
+          </button>
+          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  );
 
   return(
     <div style={S.overlay}>
@@ -2524,6 +2577,174 @@ function PosVerwaltung({onClose,onGeaendert,profiles}){
           <button style={S.canBtn} onClick={onClose}>Schließen</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Änderungsprotokoll (nur Administratoren) ────────────────────────────────
+const PROT_AKTION={erstellt:["Erstellt","#15803d","#dcfce7"],geaendert:["Geändert","#92400e","#fef3c7"],
+  geloescht:["Gelöscht","#991b1b","#fee2e2"],genehmigt:["Genehmigt","#15803d","#dcfce7"],
+  abgelehnt:["Abgelehnt","#991b1b","#fee2e2"]};
+
+function ProtokollView(){
+  const [zeilen,setZeilen]=useState([]);
+  const [laden,setLaden]=useState(true);
+  const [fehler,setFehler]=useState("");
+  const [suche,setSuche]=useState("");
+  const [bereichF,setBereichF]=useState("");
+  const [aktionF,setAktionF]=useState("");
+  const [sortSpalte,setSortSpalte]=useState("zeitpunkt");
+  const [sortAuf,setSortAuf]=useState(false);
+  const schmal=useSchmal();
+
+  async function neuLaden(){
+    setLaden(true);setFehler("");
+    try{setZeilen(await getProtokoll({limit:1000}));}
+    catch(e){setFehler(e.message);}
+    finally{setLaden(false);}
+  }
+  useEffect(()=>{neuLaden();},[]);
+
+  const bereiche=[...new Set(zeilen.map(z=>z.bereich).filter(Boolean))].sort();
+  const aktionen=[...new Set(zeilen.map(z=>z.aktion).filter(Boolean))].sort();
+
+  const gefiltert=zeilen.filter(z=>{
+    if(bereichF&&z.bereich!==bereichF)return false;
+    if(aktionF&&z.aktion!==aktionF)return false;
+    if(!suche.trim())return true;
+    const q=suche.toLowerCase();
+    return [z.benutzer_name,z.betrifft,z.beschreibung,z.bereich,z.aktion]
+      .some(v=>(v||"").toLowerCase().includes(q));
+  }).sort((a,b)=>{
+    const richtung=sortAuf?1:-1;
+    const wa=a[sortSpalte]??"",wb=b[sortSpalte]??"";
+    if(sortSpalte==="zeitpunkt")return richtung*(new Date(wa)-new Date(wb));
+    return richtung*String(wa).localeCompare(String(wb),"de");
+  });
+
+  function sortiereNach(sp){
+    if(sortSpalte===sp)setSortAuf(v=>!v);
+    else{setSortSpalte(sp);setSortAuf(sp!=="zeitpunkt");}
+  }
+  const pfeil=sp=>sortSpalte===sp?(sortAuf?" ▲":" ▼"):"";
+  const zeitText=z=>new Date(z).toLocaleString("de-DE",
+    {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+
+  function exportieren(){
+    const kopf="Zeitpunkt;Benutzer;Bereich;Aktion;Betrifft;Beschreibung";
+    const csv=[kopf,...gefiltert.map(z=>[zeitText(z.zeitpunkt),z.benutzer_name,z.bereich,
+      z.aktion,z.betrifft,(z.beschreibung||"").replace(/[;\n]/g," ")].join(";"))].join("\n");
+    const url=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));
+    const a=document.createElement("a");
+    a.href=url;a.download="Aenderungsprotokoll.csv";a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+        marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div>
+          <h2 style={S.pgT}>Änderungsprotokoll</h2>
+          <div style={{fontSize:12,color:"#8aaa5f"}}>
+            {gefiltert.length} von {zeilen.length} Einträgen · nur für Administratoren sichtbar
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button style={S.canBtn} onClick={neuLaden}>🔄 Aktualisieren</button>
+          <button style={S.canBtn} onClick={exportieren}>⬇ CSV</button>
+        </div>
+      </div>
+
+      {fehler&&(
+        <div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",border:"1px solid #fca5a5",
+          borderRadius:6,padding:"8px 10px",marginBottom:12}}>⚠️ {fehler}</div>
+      )}
+
+      {/* Suche und Filter */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        <input style={{...S.inp,flex:"1 1 240px",maxWidth:400}} value={suche}
+          onChange={e=>setSuche(e.target.value)}
+          placeholder="🔍 Suchen nach Name, Beschreibung, Bereich …"/>
+        <select style={{...S.inp,width:"auto",minWidth:140}} value={bereichF}
+          onChange={e=>setBereichF(e.target.value)}>
+          <option value="">Alle Bereiche</option>
+          {bereiche.map(b=><option key={b} value={b}>{b}</option>)}
+        </select>
+        <select style={{...S.inp,width:"auto",minWidth:130}} value={aktionF}
+          onChange={e=>setAktionF(e.target.value)}>
+          <option value="">Alle Aktionen</option>
+          {aktionen.map(a=><option key={a} value={a}>{(PROT_AKTION[a]||[a])[0]}</option>)}
+        </select>
+        {(suche||bereichF||aktionF)&&(
+          <button style={{background:"none",border:"none",color:"#8aaa5f",fontSize:12,
+            cursor:"pointer",textDecoration:"underline"}}
+            onClick={()=>{setSuche("");setBereichF("");setAktionF("");}}>zurücksetzen</button>
+        )}
+      </div>
+
+      {laden?(
+        <div style={{fontSize:13,color:"#8aaa5f"}}>Wird geladen…</div>
+      ):gefiltert.length===0?(
+        <div style={{background:"#fff",border:"1px dashed #d5e8a0",borderRadius:10,
+          padding:"18px",fontSize:13,color:"#8aaa5f"}}>
+          Keine Einträge gefunden.
+        </div>
+      ):schmal?(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {gefiltert.map(z=>{
+            const[lbl,col,bg]=PROT_AKTION[z.aktion]||[z.aktion,"#5a6b4a","#f0f4f0"];
+            return(
+              <div key={z.id} style={{background:"#fff",border:"1px solid #d5e8a0",
+                borderRadius:10,padding:"10px 12px"}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                  <span style={{fontSize:10,background:bg,color:col,borderRadius:20,
+                    padding:"3px 9px",fontWeight:700}}>{lbl}</span>
+                  <strong style={{fontSize:13,color:"#2d3a2e"}}>{z.bereich}</strong>
+                  <span style={{marginLeft:"auto",fontSize:11,color:"#8aaa5f",fontFamily:"monospace"}}>
+                    {zeitText(z.zeitpunkt)}
+                  </span>
+                </div>
+                {z.betrifft&&<div style={{fontSize:13,color:"#2d3a2e",fontWeight:600}}>{z.betrifft}</div>}
+                <div style={{fontSize:12,color:"#5a6b4a",marginTop:2}}>{z.beschreibung}</div>
+                <div style={{fontSize:11,color:"#8aaa5f",marginTop:4}}>durch {z.benutzer_name||"System"}</div>
+              </div>
+            );
+          })}
+        </div>
+      ):(
+        <div style={{background:"#fff",borderRadius:10,border:"1px solid #d5e8a0",
+          overflowX:"auto",boxShadow:"0 1px 4px rgba(61,122,79,0.06)"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
+            <thead><tr>
+              {[["zeitpunkt","Zeitpunkt"],["benutzer_name","Durch"],["bereich","Bereich"],
+                ["aktion","Aktion"],["betrifft","Betrifft"],["beschreibung","Beschreibung"]].map(([sp,lbl])=>(
+                <th key={sp} style={{...S.th,cursor:"pointer",userSelect:"none"}}
+                  onClick={()=>sortiereNach(sp)} title="Zum Sortieren klicken">{lbl}{pfeil(sp)}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {gefiltert.map(z=>{
+                const[lbl,col,bg]=PROT_AKTION[z.aktion]||[z.aktion,"#5a6b4a","#f0f4f0"];
+                return(
+                  <tr key={z.id} style={{borderBottom:"1px solid #edf5ee"}}>
+                    <td style={{...S.td,fontFamily:"monospace",fontSize:12,whiteSpace:"nowrap"}}>
+                      {zeitText(z.zeitpunkt)}</td>
+                    <td style={{...S.td,fontSize:12}}>{z.benutzer_name||"System"}</td>
+                    <td style={{...S.td,fontSize:12}}>{z.bereich}</td>
+                    <td style={S.td}>
+                      <span style={{fontSize:10,background:bg,color:col,borderRadius:20,
+                        padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap"}}>{lbl}</span>
+                    </td>
+                    <td style={{...S.td,fontSize:12,fontWeight:600}}>{z.betrifft}</td>
+                    <td style={{...S.td,fontSize:12,color:"#5a6b4a"}}>{z.beschreibung}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
