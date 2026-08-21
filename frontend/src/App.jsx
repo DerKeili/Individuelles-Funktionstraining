@@ -733,8 +733,7 @@ export default function App(){
         return;
       }
       setSession(sess);
-      await mitWiederholung(()=>loadAll(sess.user.id),2,8000);
-      setLoading(false);
+      await loadAll(sess.user.id);   // setzt loading selbst zurück, sobald das Profil da ist
     }catch(e){
       // Ohne gültige gespeicherte Sitzung ist die Anmeldemaske die richtige Antwort
       if(!sessionAusSpeicher()){
@@ -868,7 +867,7 @@ export default function App(){
   // Amtliche Feiertage/Ferien laden, sobald Jahr oder Bundesland wechseln
   const [kalTick,setKalTick]=useState(0);
   useEffect(()=>{
-    if(!bundesland)return;
+    if(!bundesland||loading)return;   // erst wenn die App steht
     let aktiv=true;
     (async()=>{
       let neu=false;
@@ -879,7 +878,7 @@ export default function App(){
       if(aktiv&&neu)setKalTick(t=>t+1);
     })();
     return()=>{aktiv=false;};
-  },[bundesland,year]);
+  },[bundesland,year,loading]);
 
   // Fehlerbild: alle 5 Sekunden selbst einen neuen Versuch starten,
   // damit sich die App nach einem Netzwechsel von allein wieder fängt
@@ -931,25 +930,36 @@ export default function App(){
     return()=>clearInterval(t);
   },[session]);
 
+  // Beim Start wird NUR das Nötigste abgewartet: das eigene Profil.
+  // Alles andere (Kollegen, Einträge, Benachrichtigungen, Anträge, Konten,
+  // Positionen) lädt danach im Hintergrund nach. Dadurch steht die App
+  // nach einem einzigen Aufruf bereit, statt nach einer Kette von sechs.
   async function loadAll(userId){
     setLoading(true);
     try{
-      const[prof,profs]=await Promise.all([getProfile(userId),getAllProfiles()]);
+      const prof=await getProfile(userId);
       setProfile(prof);
-      setProfiles(profs);
-      await loadEntries(istLeitung(prof),userId);
-      // Eigene Benachrichtigungen laden
-      const notifs=await getMyNotifications(userId);
-      setMyNotifications(notifs);
       profileLoadedRef.current=true;
+      setLoading(false);                 // ← App ist ab hier bedienbar
+
+      // Restliche Daten parallel und ohne Blockade nachladen.
+      // Schlägt eines davon fehl, bleibt die App trotzdem nutzbar.
+      const leitung=istLeitung(prof);
+      getAllProfiles().then(setProfiles).catch(()=>{});
+      loadEntries(leitung,userId).catch(()=>{});
+      getMyNotifications(userId).then(setMyNotifications).catch(()=>{});
+      return;
     }catch(e){
       // JWT-Zeitfehler: Token neu holen und nochmal versuchen
       if(e.message?.includes("JWT")||e.message?.includes("future")||e.message?.includes("expired")){
         try{
           await supabase.auth.refreshSession();
-          const[prof,profs]=await Promise.all([getProfile(userId),getAllProfiles()]);
-          setProfile(prof);setProfiles(profs);
-          await loadEntries(istLeitung(prof),userId);
+          const prof=await getProfile(userId);
+          setProfile(prof);
+          profileLoadedRef.current=true;
+          getAllProfiles().then(setProfiles).catch(()=>{});
+          loadEntries(istLeitung(prof),userId).catch(()=>{});
+          getMyNotifications(userId).then(setMyNotifications).catch(()=>{});
         }catch(e2){notify(e2.message,"warn");}
       } else {
         notify(e.message,"warn");
@@ -1094,7 +1104,15 @@ export default function App(){
       if(uebernehmePositionen(await getPositionen()))setPosTick(t=>t+1);
     }catch(e){/* Tabelle fehlt → eingebauter Standardkatalog bleibt aktiv */}
   }
-  useEffect(()=>{if(session&&profile){ladeUeAntraege();ladeJahreskonten();ladePositionen();}},[session,profile]);
+  useEffect(()=>{
+    if(!session||!profile)return;
+    // Nacheinander mit kurzem Versatz, damit der Start nicht von einer
+    // Welle gleichzeitiger Anfragen ausgebremst wird.
+    const t1=setTimeout(()=>ladePositionen(),150);
+    const t2=setTimeout(()=>ladeJahreskonten(),400);
+    const t3=setTimeout(()=>ladeUeAntraege(),700);
+    return()=>{clearTimeout(t1);clearTimeout(t2);clearTimeout(t3);};
+  },[session,profile]);
 
   async function handleUeAntrag(stunden,grund){
     try{
@@ -1312,7 +1330,8 @@ export default function App(){
   function profilesWithEntries(){
     // Urlaubsanspruch und Resturlaub aus dem Jahreskonto des angezeigten Jahres
     // überschreiben die alten Profilwerte — so rechnen alle Ansichten jahresgenau.
-    return profiles.map(p=>{
+    const basis=profiles.length>0?profiles:(profile?[profile]:[]);
+    return basis.map(p=>{
       const k=kontoFuer(p,year);
       return{
         ...p,
@@ -1428,6 +1447,8 @@ export default function App(){
       ["profil","👤 Profil"],["hilfe","❓ Anleitung"]]
     :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"],["hilfe","❓ Anleitung"]];
 
+  // Die Kollegenliste kommt eventuell erst kurz nach dem Start an —
+  // bis dahin steht wenigstens das eigene Profil zur Verfügung.
   const pwu=profilesWithEntries();
   // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
   const meineLeute=pwu.filter(u=>canManage(profile,u));
