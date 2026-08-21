@@ -512,6 +512,16 @@ function tageBisGeburtstag(iso){
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
   {
+    version:"2026.08.16",
+    datum:"16. August 2026",
+    titel:"Anleitung für alle",
+    punkte:[
+      "Neuer Menüpunkt „❓ Anleitung“ mit einer Schritt-für-Schritt-Erklärung: Urlaub beantragen, Überstunden melden, wie Urlaubstage gezählt werden, häufige Fragen.",
+      "Beim ersten Öffnen erscheint eine kurze Begrüßung mit Verweis auf die Anleitung.",
+      "Leitungen und Administratoren finden dort zusätzliche Abschnitte zu ihren Funktionen.",
+    ],
+  },
+  {
     version:"2026.08.15",
     datum:"15. August 2026",
     titel:"Änderungsprotokoll",
@@ -614,6 +624,9 @@ export default function App(){
   const [ueAntraege,setUeAntraege]=useState([]);       // Überstundenanträge
   const [jahreskonten,setJahreskonten]=useState([]);   // Urlaubsanspruch je Jahr
   const [neuerungenZu,setNeuerungenZu]=useState(false); // in dieser Sitzung weggeklickt
+  const [willkommenZu,setWillkommenZu]=useState(false);  // Begrüßung weggeklickt
+  // Wurde die Begrüßung schon einmal angezeigt? (geräteweise gespeichert)
+  const willkommenGesehen=willkommenZu||(()=>{try{return !!localStorage.getItem("up_willkommen");}catch(e){return true;}})();
   const [fristTick,setFristTick]=useState(0);          // aktualisiert den Countdown
   useEffect(()=>{const t=setInterval(()=>setFristTick(x=>x+1),60000);return()=>clearInterval(t);},[]);
   // Für welches Jahr muss geplant werden? Bis zum 30.11. für das Folgejahr,
@@ -1412,8 +1425,8 @@ export default function App(){
       ...(isAdmin?[]:[["meinurlaub","🏖 Mein Urlaub"]]),
       ["feiertage","🗓 Ferien & Feiertage"],
       ...(isAdmin?[["protokoll","🔍 Protokoll"]]:[]),
-      ["profil","👤 Profil"]]
-    :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"]];
+      ["profil","👤 Profil"],["hilfe","❓ Anleitung"]]
+    :[["kalender","📅 Kalender"],["dashboard","📊 Dashboard"],["meinurlaub","🏖 Mein Urlaub"],["feiertage","🗓 Ferien & Feiertage"],["profil","👤 Profil"],["hilfe","❓ Anleitung"]];
 
   const pwu=profilesWithEntries();
   // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
@@ -1583,8 +1596,42 @@ export default function App(){
         </div>
       )}
 
+      {/* Begrüßung beim ersten Öffnen */}
+      {profile&&!willkommenGesehen&&(
+        <div style={S.overlay}>
+          <div style={{...S.modal,maxWidth:480}}>
+            <div style={S.mHd}>
+              <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+                👋 Willkommen{profile.vorname?", "+profile.vorname:""}!
+              </span>
+            </div>
+            <div style={{...S.mBd,fontSize:13,color:"#2d3a2e",lineHeight:1.6}}>
+              <p style={{marginTop:0}}>
+                Schön, dass du da bist. Der Urlaubsplaner ist die zentrale Stelle für alle
+                Urlaubsanträge im Therapie- &amp; Pflegezentrum Westlausitz.
+              </p>
+              <p style={{marginBottom:0}}>
+                Wir haben eine kurze Anleitung vorbereitet: Urlaub beantragen, Überstunden melden,
+                wie Urlaubstage gezählt werden und was bis wann eingetragen sein muss.
+                Du findest sie jederzeit oben unter <strong>„❓ Anleitung“</strong>.
+              </p>
+            </div>
+            <div style={S.mFt}>
+              <button style={S.savBtn} onClick={()=>{
+                try{localStorage.setItem("up_willkommen","1");}catch(e){}
+                setWillkommenZu(true);setView("hilfe");
+              }}>Anleitung öffnen</button>
+              <button style={S.canBtn} onClick={()=>{
+                try{localStorage.setItem("up_willkommen","1");}catch(e){}
+                setWillkommenZu(true);
+              }}>Später</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hinweis auf Neuerungen nach einem Update */}
-      {profile&&!neuerungenZu&&neueEintraege(profile.changelog_version).length>0&&(
+      {profile&&willkommenGesehen&&!neuerungenZu&&neueEintraege(profile.changelog_version).length>0&&(
         <NeuerungenModal
           eintraege={neueEintraege(profile.changelog_version)}
           onGelesen={async()=>{
@@ -1611,6 +1658,7 @@ export default function App(){
         {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onPositionen={isAdmin?()=>setModal({type:"positionen"}):null} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
+        {view==="hilfe"&&<HilfeView user={profile} istLeitung={isLeitung} isAdmin={isAdmin}/>}
         {view==="protokoll"&&isAdmin&&<ProtokollView/>}
         {view==="feiertage"&&<FerView key={"fer"+kalTick} year={year} state={bundesland} stateName={stateName}/>}
         {view==="profil"&&<ProfView user={pwu.find(u=>u.id===session?.user.id)||profile} onSave={async(id,d)=>{await handleUpdateProfile(id,d);setProfileDirty(false);}} onChangePw={handleChangePw} onDirtyChange={setProfileDirty}/>}
@@ -2745,6 +2793,233 @@ function ProtokollView(){
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Anleitung / Hilfe ───────────────────────────────────────────────────────
+function HilfeAbschnitt({titel,offenStart=false,children}){
+  const [offen,setOffen]=useState(offenStart);
+  return(
+    <div style={{background:"#fff",border:"1px solid #d5e8a0",borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+      <button onClick={()=>setOffen(v=>!v)} style={{width:"100%",textAlign:"left",background:offen?"#f7fce8":"#fff",
+        border:"none",padding:"13px 15px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,
+        fontSize:14,fontWeight:700,color:"#2d3a2e",fontFamily:"inherit"}}>
+        <span style={{fontSize:13,color:"#7ab529",transform:offen?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
+        {titel}
+      </button>
+      {offen&&(
+        <div style={{padding:"4px 16px 16px",fontSize:13,color:"#2d3a2e",lineHeight:1.65}}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HilfeView({user,istLeitung,isAdmin}){
+  const P={margin:"0 0 10px"};
+  const LI={marginBottom:6};
+  const Hinweis=({children,farbe="#4a6b0f",hg="#f7fce8",rand="#d5e8a0"})=>(
+    <div style={{background:hg,border:"1px solid "+rand,borderRadius:8,padding:"10px 12px",
+      fontSize:12.5,color:farbe,margin:"10px 0"}}>{children}</div>
+  );
+  return(
+    <div style={{maxWidth:860}}>
+      <h2 style={S.pgT}>Anleitung</h2>
+      <div style={{fontSize:13,color:"#8aaa5f",marginBottom:18}}>
+        Alles Wichtige zum Urlaubsplaner. Du kannst diese Seite jederzeit über „❓ Anleitung“ erneut aufrufen.
+      </div>
+
+      <HilfeAbschnitt titel="🚀 Erste Schritte" offenStart>
+        <p style={P}>
+          Willkommen{user?.vorname?", "+user.vorname:""}! Der Urlaubsplaner ist die zentrale Stelle für
+          Urlaubsanträge im Therapie- &amp; Pflegezentrum Westlausitz.
+        </p>
+        <ol style={{paddingLeft:20,margin:"0 0 10px"}}>
+          <li style={LI}><strong>Passwort ändern:</strong> Beim ersten Anmelden wirst du aufgefordert,
+            ein eigenes Passwort zu vergeben. Das Startpasswort von der Leitung gilt danach nicht mehr.</li>
+          <li style={LI}><strong>Profil prüfen:</strong> Sieh unter „👤 Profil“ nach, ob Name, Geburtsdatum
+            und Arbeitszeit stimmen.</li>
+          <li style={LI}><strong>Urlaub eintragen:</strong> Unter „🏖 Mein Urlaub“ stellst du deine Anträge.</li>
+        </ol>
+        <Hinweis>
+          💡 Tipp: Leg dir den Urlaubsplaner auf den Startbildschirm. Auf dem iPhone oder iPad über
+          das Teilen-Symbol → „Zum Home-Bildschirm“, unter Android über das Menü → „App installieren“.
+          Dann startet er wie eine normale App.
+        </Hinweis>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="🏖 Urlaub beantragen">
+        <p style={P}>Gehe auf „🏖 Mein Urlaub“ und dann auf <strong>+ Urlaub beantragen</strong>.</p>
+        <ol style={{paddingLeft:20,margin:"0 0 10px"}}>
+          <li style={LI}>Wähle zuerst <strong>Von</strong> und <strong>Bis</strong>. Der Antrag umfasst
+            immer den gesamten Zeitraum, auch Wochenenden und Feiertage — diese kosten aber keinen Urlaubstag.</li>
+          <li style={LI}>Entscheide, <strong>wovon abgezogen</strong> werden soll: vom Urlaub oder von
+            deinen Überstunden.</li>
+          <li style={LI}>Unter „So wird gebucht“ siehst du genau, welche Tage von welchem Konto abgehen.</li>
+          <li style={LI}>Mit <strong>Beantragen</strong> geht der Antrag an deine Leitung.</li>
+        </ol>
+        <p style={P}>
+          Der Eintrag steht zunächst auf <strong>⏳ Ausstehend</strong>. Sobald die Leitung entschieden hat,
+          wird daraus <strong>✓ Bestätigt</strong> oder <strong>✗ Abgelehnt</strong>. Du bekommst darüber
+          eine Benachrichtigung.
+        </p>
+        <Hinweis>
+          ↩ <strong>Resturlaub zuerst:</strong> Hast du Resturlaub aus dem Vorjahr, wird dieser automatisch
+          zuerst verbraucht — er verfällt sonst als Erstes. Der Zeitraum wird dafür gegebenenfalls in
+          zwei Einträge geteilt. Das ist gewollt und kein Fehler.
+        </Hinweis>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="📅 Wie Urlaubstage gezählt werden">
+        <ul style={{paddingLeft:20,margin:"0 0 10px"}}>
+          <li style={LI}>Samstage und Sonntage kosten <strong>keinen</strong> Urlaubstag.</li>
+          <li style={LI}>Gesetzliche Feiertage kosten <strong>keinen</strong> Urlaubstag.</li>
+          <li style={LI}><strong>Heiligabend</strong> und <strong>Silvester</strong> zählen als
+            <strong> halber Tag</strong>.</li>
+          <li style={LI}>Ein Urlaubstag entspricht deiner täglichen Arbeitszeit — bei 40 Stunden auf
+            5 Tage also 8 Stunden.</li>
+        </ul>
+        <p style={P}>
+          Im Antragsfenster steht immer, wie viele Tage der gewählte Zeitraum tatsächlich kostet und
+          welche Feiertage darin liegen.
+        </p>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="⏱ Überstunden">
+        <p style={P}>
+          Über „⏱ Überstunden melden“ beantragst du eine Änderung deines Kontos: eine
+          <strong> positive Zahl</strong> für geleistete Mehrarbeit, eine <strong>negative Zahl</strong>
+          für Abbau. Die Leitung prüft und genehmigt.
+        </p>
+        <p style={P}>
+          Genehmigte Überstunden kannst du jederzeit als freie Tage nehmen — wähle beim Urlaubsantrag
+          einfach „⏱ Überstunden“. Dein Urlaubsanspruch bleibt davon unberührt.
+        </p>
+        <Hinweis>
+          Deine gestellten Anträge findest du mit Status unter „🏖 Mein Urlaub“. Solange sie offen sind,
+          kannst du sie mit dem 🗑-Symbol zurückziehen.
+        </Hinweis>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="🗓 Abgabefrist für die Jahresplanung">
+        <p style={P}>
+          Bis zum <strong>30. November</strong> müssen mindestens <strong>90 %</strong> des Urlaubs für
+          das kommende Jahr eingetragen sein. Oben auf jeder Seite siehst du einen Countdown und einen
+          Fortschrittsbalken.
+        </p>
+        <p style={P}>
+          Der Balken wird grün, sobald du die 90 % erreichst. Die schwarze Linie markiert genau diese Grenze.
+        </p>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="📅 Kalender und Dashboard">
+        <p style={P}>
+          Der <strong>Kalender</strong> zeigt das ganze Jahr auf einen Blick: dein Urlaub in deiner Farbe,
+          Schulferien rosa, Feiertage beige. Über die Schalter oben rechts kannst du Ferien und Feiertage
+          ein- und ausblenden.
+        </p>
+        <p style={P}>
+          Das <strong>Dashboard</strong> fasst deine Zahlen zusammen: verbrauchte und verbleibende
+          Urlaubstage, Überstundenkonto und alle Einträge des Jahres.
+        </p>
+        {!istLeitung&&(
+          <Hinweis farbe="#5a6b4a" hg="#f8faf0" rand="#d5e8a0">
+            🔒 Aus Datenschutzgründen siehst du ausschließlich deinen eigenen Urlaub. Den Urlaub von
+            Kolleginnen und Kollegen sieht nur die zuständige Leitung.
+          </Hinweis>
+        )}
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="👤 Profil und Passwort">
+        <p style={P}>
+          Unter „👤 Profil“ änderst du deinen Namen, dein Geburtsdatum und dein Passwort.
+        </p>
+        <p style={P}>
+          <strong>Nicht selbst änderbar</strong> sind Urlaubstage, Überstunden, Arbeitszeit, Position
+          und deine Kalenderfarbe. Diese Angaben pflegt die Leitung — wende dich bei Fragen an sie.
+          Ändert die Leitung etwas, wirst du automatisch benachrichtigt.
+        </p>
+        <Hinweis>
+          🔑 <strong>Passwort vergessen?</strong> Auf der Anmeldeseite auf „Passwort vergessen?“ tippen.
+          Die Leitung setzt es dann zurück und teilt dir ein neues Startpasswort mit.
+        </Hinweis>
+      </HilfeAbschnitt>
+
+      <HilfeAbschnitt titel="🔐 Anmeldung und Sicherheit">
+        <ul style={{paddingLeft:20,margin:"0 0 10px"}}>
+          <li style={LI}>Aus Sicherheitsgründen ist <strong>jeden Tag eine neue Anmeldung</strong> nötig.
+            Am nächsten Morgen erscheint deshalb wieder die Anmeldemaske.</li>
+          <li style={LI}>Nach <strong>drei Fehlversuchen</strong> ist die Eingabe für 30 Minuten gesperrt.</li>
+          <li style={LI}>Alle Änderungen werden protokolliert.</li>
+        </ul>
+      </HilfeAbschnitt>
+
+      {istLeitung&&(
+        <HilfeAbschnitt titel="🔑 Zusätzliche Funktionen für Leitungen">
+          <p style={P}>
+            Als Leitung siehst du zusätzlich die Bereiche <strong>Mitarbeiter</strong> und
+            <strong> Einträge</strong> — beschränkt auf die Personen, für die du zuständig bist.
+          </p>
+          <ul style={{paddingLeft:20,margin:"0 0 10px"}}>
+            <li style={LI}><strong>Anträge entscheiden:</strong> Unter „📋 Einträge“ stehen offene Anträge
+              oben. Mit ✓ genehmigen, mit ✗ ablehnen. Die gelbe Zahl in der Kopfzeile zeigt, wie viele
+              offen sind.</li>
+            <li style={LI}><strong>Überschneidungen:</strong> Die App warnt, wenn im selben Fachbereich
+              bereits jemand Urlaub hat. Du kannst trotzdem genehmigen.</li>
+            <li style={LI}><strong>Urlaub eintragen:</strong> Über die farbigen Namensknöpfe trägst du
+              direkt für einen Mitarbeiter ein — das ist sofort bestätigt.</li>
+            <li style={LI}><strong>Stammdaten pflegen:</strong> Urlaubstage, Überstunden und Arbeitszeit
+              änderst du im Mitarbeiter-Dialog. Achte oben auf das gewählte <strong>Jahr</strong> —
+              Urlaubsansprüche gelten je Kalenderjahr.</li>
+            <li style={LI}><strong>Bereichsfilter:</strong> Über die Knöpfe und das Auswahlmenü
+              schränkst du Kalender und Einträge auf einen Fachbereich oder eine einzelne Person ein.</li>
+          </ul>
+          <Hinweis farbe="#92400e" hg="#fff7ed" rand="#fcd9b0">
+            Über deinen <strong>eigenen</strong> Antrag kannst du nicht selbst entscheiden — das
+            übernimmt die Praxis- oder Geschäftsleitung.
+          </Hinweis>
+        </HilfeAbschnitt>
+      )}
+
+      {isAdmin&&(
+        <HilfeAbschnitt titel="⚙️ Zusätzliche Funktionen für Administratoren">
+          <ul style={{paddingLeft:20,margin:"0 0 10px"}}>
+            <li style={LI}><strong>Mitarbeiter anlegen:</strong> Unter „👥 Mitarbeiter“. Vergib ein
+              Startpasswort mit mindestens 8 Zeichen; der Mitarbeiter muss es beim ersten Anmelden ändern.</li>
+            <li style={LI}><strong>Positionen verwalten:</strong> Über „⚙️ Positionen“. Vorsicht — die
+              Positionen steuern die Zugriffsrechte. Es erscheint vorher ein Warnhinweis.</li>
+            <li style={LI}><strong>Protokoll:</strong> Unter „🔍 Protokoll“ siehst du jede Änderung mit
+              Zeitpunkt und Benutzername, durchsuchbar, sortierbar und als CSV ausgebbar.</li>
+            <li style={LI}><strong>Passwort zurücksetzen:</strong> Im Mitarbeiter-Dialog unter
+              „Zugangsdaten“.</li>
+          </ul>
+        </HilfeAbschnitt>
+      )}
+
+      <HilfeAbschnitt titel="❓ Häufige Fragen">
+        <p style={{...P,fontWeight:700}}>Warum werden meine Urlaubstage nicht abgezogen?</p>
+        <p style={P}>Erst nach der Genehmigung durch die Leitung. Bis dahin steht der Eintrag auf „Ausstehend“.</p>
+
+        <p style={{...P,fontWeight:700}}>Der gewählte Zeitraum zeigt 0 Tage — warum?</p>
+        <p style={P}>Dann liegen darin nur Wochenenden und Feiertage. Ein Antrag ist nicht nötig.</p>
+
+        <p style={{...P,fontWeight:700}}>Mein Antrag wurde in zwei Einträge geteilt.</p>
+        <p style={P}>Das passiert, wenn Resturlaub und Jahresurlaub kombiniert werden. Zusammen ergibt
+          es die richtige Gesamtzahl.</p>
+
+        <p style={{...P,fontWeight:700}}>Ich möchte einen bestätigten Urlaub ändern.</p>
+        <p style={P}>Wende dich an deine Leitung — bestätigte Einträge kannst du nicht selbst ändern.</p>
+
+        <p style={{...P,fontWeight:700}}>Die App zeigt „Verbindung wird hergestellt“.</p>
+        <p style={P}>Meist nach einem Wechsel zwischen WLAN und Mobilfunk. Die App verbindet sich von
+          selbst neu; sonst hilft „Jetzt neu verbinden“.</p>
+      </HilfeAbschnitt>
+
+      <div style={{fontSize:12,color:"#8aaa5f",marginTop:16,paddingTop:14,borderTop:"1px solid #d5e8a0"}}>
+        Fragen, die hier nicht beantwortet werden? Wende dich an deine Teamleitung oder die Praxisleitung.
+      </div>
     </div>
   );
 }
