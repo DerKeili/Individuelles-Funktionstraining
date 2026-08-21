@@ -590,6 +590,26 @@ function fristRest(planJahr){
   return{ms,tage,stunden,minuten};
 }
 
+// ─── Entwürfe sichern ────────────────────────────────────────────────────────
+// iOS verwirft die Seite bei Speicherdruck und lädt sie neu. Alle Eingaben wären
+// dann verloren. Deshalb werden offene Formulare laufend zwischengespeichert
+// und nach einem Neustart wiederhergestellt.
+const ENTWURF_KEY="up_entwurf";
+function entwurfSpeichern(daten){
+  try{localStorage.setItem(ENTWURF_KEY,JSON.stringify({zeit:Date.now(),daten}));}catch(e){}
+}
+function entwurfLesen(){
+  try{
+    const roh=localStorage.getItem(ENTWURF_KEY);
+    if(!roh)return null;
+    const o=JSON.parse(roh);
+    // Entwürfe älter als 2 Stunden verwerfen
+    if(Date.now()-o.zeit>2*60*60*1000){localStorage.removeItem(ENTWURF_KEY);return null;}
+    return o.daten;
+  }catch(e){return null;}
+}
+function entwurfLoeschen(){try{localStorage.removeItem(ENTWURF_KEY);}catch(e){}}
+
 // Nur iOS/iPadOS friert HTTPS-Verbindungen beim Wechsel in den Hintergrund ein.
 // Auf Windows, macOS und Android bleibt die Verbindung bestehen — dort darf die
 // App beim Tabwechsel weder neu laden noch den Ladebildschirm zeigen.
@@ -636,6 +656,7 @@ export default function App(){
   const schmal=useSchmal();                            // Handy-Ansicht?
   const [view,setView]=useState("kalender");
   const [modal,setModal]=useState(null);
+  const [entwurfHinweis,setEntwurfHinweis]=useState(false);
   const [tooltip,setTooltip]=useState(null);
   const [profileDirty,setProfileDirty]=useState(false);
   const [pendingView,setPendingView]=useState(null);
@@ -784,6 +805,23 @@ export default function App(){
   useEffect(()=>{sessionRef.current=session;},[session]);
   useEffect(()=>{profileRef.current=profile;},[profile]);
   useEffect(()=>{modalOffenRef.current=!!modal;},[modal]);
+  // Offenes Fenster sichern, damit es einen Neustart übersteht
+  useEffect(()=>{
+    if(modal&&["addUser","editUser","addEntry","editEntry"].includes(modal.type)){
+      entwurfSpeichern({typ:modal.type,daten:modal.data||null,felder:null});
+    }else if(!modal){
+      // Nur löschen, wenn kein Formular offen ist
+      const e=entwurfLesen();
+      if(e&&!e.felder)entwurfLoeschen();
+    }
+  },[modal]);
+
+  // Nach dem Start prüfen, ob ein Entwurf wiederhergestellt werden kann
+  useEffect(()=>{
+    if(loading||!profile||modal)return;
+    const e=entwurfLesen();
+    if(e&&e.typ&&e.felder)setEntwurfHinweis(true);
+  },[loading,profile]);
 
   // iOS/Safari hält nach dem Einfrieren der App die alte HTTPS-Verbindung offen,
   // obwohl sie längst tot ist. Neue Anfragen reihen sich daran an und antworten nie.
@@ -937,9 +975,27 @@ export default function App(){
   // Positionen) lädt danach im Hintergrund nach. Dadurch steht die App
   // nach einem einzigen Aufruf bereit, statt nach einer Kette von sechs.
   async function loadAll(userId){
+    // Ist das Profil aus der letzten Sitzung bekannt, sofort damit starten und
+    // nur im Hintergrund auffrischen. Dann erscheint gar kein Ladebildschirm.
+    const zwischen=(()=>{try{return JSON.parse(localStorage.getItem("up_profil")||"null");}catch(e){return null;}})();
+    if(zwischen&&zwischen.id===userId){
+      setProfile(zwischen);
+      profileLoadedRef.current=true;
+      setLoading(false);
+      getProfile(userId).then(pr=>{
+        setProfile(pr);
+        try{localStorage.setItem("up_profil",JSON.stringify(pr));}catch(e){}
+      }).catch(()=>{});
+      const leitung=istLeitung(zwischen);
+      getAllProfiles().then(setProfiles).catch(()=>{});
+      loadEntries(leitung,userId).catch(()=>{});
+      getMyNotifications(userId).then(setMyNotifications).catch(()=>{});
+      return;
+    }
     setLoading(true);
     try{
       const prof=await getProfile(userId);
+      try{localStorage.setItem("up_profil",JSON.stringify(prof));}catch(e){}
       setProfile(prof);
       profileLoadedRef.current=true;
       setLoading(false);                 // ← App ist ab hier bedienbar
@@ -1060,6 +1116,8 @@ export default function App(){
     }
   }
   async function handleLogout(){
+    try{localStorage.removeItem("up_profil");}catch(e){}
+    entwurfLoeschen();
     await signOut();
     setView("kalender");
   }
@@ -1618,6 +1676,37 @@ export default function App(){
         </div>
       )}
 
+      {/* Wiederherstellung nach einem Neustart durch das Betriebssystem */}
+      {entwurfHinweis&&(()=>{
+        const e=entwurfLesen();
+        if(!e)return null;
+        const was=e.typ==="addUser"?"Neuer Mitarbeiter"
+                 :e.typ==="editUser"?"Mitarbeiter bearbeiten":"Formular";
+        const name=[e.felder?.vorname,e.felder?.nachname].filter(Boolean).join(" ");
+        return(
+          <div style={{background:"#fff7ed",border:"1.5px solid #f0932b",borderRadius:10,
+            padding:"12px 14px",margin:"0 0 16px",display:"flex",alignItems:"center",
+            gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:18}}>💾</span>
+            <div style={{flex:"1 1 220px",minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#92400e"}}>
+                Nicht gespeicherte Eingaben gefunden
+              </div>
+              <div style={{fontSize:12,color:"#b45309"}}>
+                „{was}“{name?" – "+name:""}. Möchtest du dort weitermachen?
+              </div>
+            </div>
+            <button style={{...S.savBtn,background:"#f0932b",padding:"7px 16px",fontSize:13}}
+              onClick={()=>{
+                setEntwurfHinweis(false);
+                setModal({type:e.typ,data:e.daten,entwurf:e});
+              }}>Weitermachen</button>
+            <button style={{...S.canBtn,padding:"7px 14px",fontSize:13}}
+              onClick={()=>{entwurfLoeschen();setEntwurfHinweis(false);}}>Verwerfen</button>
+          </div>
+        );
+      })()}
+
       {/* Begrüßung beim ersten Öffnen */}
       {profile&&!willkommenGesehen&&(
         <div style={S.overlay}>
@@ -1729,8 +1818,8 @@ export default function App(){
       {modal?.type==="positionen"&&<PosVerwaltung profiles={profiles}
         onClose={()=>setModal(null)}
         onGeaendert={async()=>{await ladePositionen();}}/>}
-      {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" jahrHinweis={year}
+      {modal?.type==="addUser"&&<UserModal title="Neuer Mitarbeiter" isAdmin entwurf={modal.entwurf} onSave={async d=>{await handleCreateUser(d);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal?.type==="editUser"&&<UserModal title="Mitarbeiter bearbeiten" jahrHinweis={year} entwurf={modal.entwurf}
         initial={{...modal.data,...(istPauschal(modal.data)?{}:{urlaubstage:kontoFuer(modal.data,year).urlaubstage,resturlaub:kontoFuer(modal.data,year).resturlaub})}}
         isAdmin
         belegteFarben={(()=>{
@@ -4037,8 +4126,9 @@ function CopyLoginButton({email, password, vorname}){
 }
 
 // ─── User Modal ───────────────────────────────────────────────────────────────
-function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben=[],jahrHinweis=new Date().getFullYear()}){
-  const[f,setF]=useState({
+function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben=[],jahrHinweis=new Date().getFullYear(),entwurf=null}){
+  // Gesicherte Eingaben haben Vorrang vor den Ausgangswerten
+  const[f,setF]=useState(()=>entwurf?.felder||{
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
     geschlecht:initial?.geschlecht||"d",
@@ -4064,7 +4154,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     setF(p=>({...p,einstellungsdatum:val,urlaubstage:String(auto)}));
   }
   // Für neuen User: Passwort
-  const[newUserPw,setNewUserPw]=useState("");
+  const[newUserPw,setNewUserPw]=useState(entwurf?.passwort||"");
   const[showPw,setShowPw]=useState(false);
   // Admin-Passwort-Reset für bestehenden User
   const[showPwReset,setShowPwReset]=useState(false);
@@ -4075,6 +4165,15 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
   const[saveErr,setSaveErr]=useState("");
   const[start]=useState(()=>JSON.stringify({...(initial||{}),...{}}));
   const[frageOffen,setFrageOffen]=useState(false);
+
+  // Eingaben laufend sichern — überlebt einen Neustart durch iOS
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      entwurfSpeichern({typ:initial?"editUser":"addUser",
+        daten:initial||null, felder:f, passwort:newUserPw||""});
+    },400);
+    return()=>clearTimeout(t);
+  },[f,newUserPw]);
   const[busy,setBusy]=useState(false);
 
   // Zahlenfeld: beim Fokus leeren damit man direkt tippen kann
@@ -4088,6 +4187,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
     try{
+      entwurfLoeschen();
       await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,fronleichnam:!!f.fronleichnam,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
     }catch(e){
       setSaveErr(e.message||"Speichern fehlgeschlagen.");
@@ -4103,7 +4203,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     })||!!newUserPw;
   }
   async function schliessen(){
-    if(!istGeaendert()){onClose();return;}
+    if(!istGeaendert()){entwurfLoeschen();onClose();return;}
     setFrageOffen(true);
   }
 
@@ -4140,7 +4240,7 @@ Thomas Keilig`;
       {frageOffen&&(
         <SpeichernFrage busy={busy}
           onSpeichern={async()=>{setFrageOffen(false);await save();}}
-          onVerwerfen={()=>{setFrageOffen(false);onClose();}}
+          onVerwerfen={()=>{setFrageOffen(false);entwurfLoeschen();onClose();}}
           onZurueck={()=>setFrageOffen(false)}/>
       )}
       <div style={{...S.modal,width:520}}>
