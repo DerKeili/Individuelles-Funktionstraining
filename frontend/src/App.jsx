@@ -908,7 +908,9 @@ export default function App(){
     const t=setTimeout(()=>{
       if(!ladeRef.current)return;
       bootRef.current=false;
-      // Erst versuchen, mit einer frischen Verbindung neu zu starten (nur iOS)
+      // Ohne gespeicherte Sitzung ist die Anmeldemaske die richtige Antwort —
+      // ein Neustart würde hier nur eine Schleife erzeugen.
+      if(!sessionAusSpeicher()){setLoading(false);setSession(null);return;}
       if(IST_IOS&&neustartMitSchutz())return;
       setLoading(false);setDbError(true);
     },10000);
@@ -1040,22 +1042,21 @@ export default function App(){
 
   // ── Auth ──────────────────────────────────────────────────────────
   async function handleLogin(email,password){
-    setLoading(true);
+    // WICHTIG: Hier NICHT setLoading(true) — sonst verschwindet die Anmeldemaske
+    // samt Eingaben, und eine Fehlermeldung hätte niemanden mehr, der sie anzeigt.
+    // Den Wartezustand zeigt der Anmelde-Knopf selbst an.
     setDbError(false);
     try{
       const data=await signIn(email,password);
-      // Direkt Session + Profil laden — nicht auf onAuthStateChange warten
       const userId=data?.user?.id||(await getSession())?.user?.id;
-      if(userId){
-        setSession(data?.session||await getSession());
-        await loadAll(userId);
-      }else{
-        setLoading(false);
-        throw new Error("Anmeldung fehlgeschlagen — keine Sitzung erhalten.");
-      }
+      if(!userId)throw new Error("Anmeldung fehlgeschlagen — keine Sitzung erhalten.");
+      // Erst jetzt umschalten: ab hier ist die Anmeldung geglückt
+      setLoading(true);
+      setSession(data?.session||await getSession());
+      await loadAll(userId);
     }catch(e){
       setLoading(false);
-      throw e;
+      throw e;                 // LoginScreen zeigt die Meldung an
     }
   }
   async function handleLogout(){
@@ -1927,8 +1928,12 @@ function LoginScreen({onLogin}){
     }catch(e){
       const roh=(e.message||"").toLowerCase();
       let text;
-      if(roh.includes("invalid login")||roh.includes("credentials"))
+      if(roh.includes("invalid login")||roh.includes("credentials")||roh.includes("invalid_grant"))
         text="E-Mail-Adresse oder Passwort ist falsch.";
+      else if(roh.includes("zeitüberschreitung"))
+        text="Der Server antwortet nicht. Bitte Internetverbindung prüfen und erneut versuchen.";
+      else if(roh.includes("keine sitzung"))
+        text="Die Anmeldung konnte nicht abgeschlossen werden. Bitte erneut versuchen.";
       else if(roh.includes("email not confirmed"))
         text="Dieses Konto ist noch nicht freigeschaltet. Bitte an die Praxisleitung wenden.";
       else if(roh.includes("rate limit")||roh.includes("too many"))
@@ -1981,7 +1986,13 @@ function LoginScreen({onLogin}){
             <div style={{textAlign:"right",marginBottom:16}}>
               <button onClick={()=>{setForgotMode(true);setForgotEmail(email);setErr("");}} style={{background:"none",border:"none",color:"#64748b",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Passwort vergessen?</button>
             </div>
-            {err&&<div style={{fontSize:12,color:"#f87171",marginBottom:14,padding:"8px 12px",background:"rgba(248,113,113,0.1)",borderRadius:6,border:"1px solid rgba(248,113,113,0.2)"}}>{err}</div>}
+            {err&&(
+              <div role="alert" style={{fontSize:13,color:"#b91c1c",marginBottom:14,
+                padding:"11px 13px",background:"#fef2f2",borderRadius:8,
+                border:"1.5px solid #fca5a5",fontWeight:600,lineHeight:1.45}}>
+                ⚠️ {err}
+              </div>
+            )}
             <button style={{...S.savBtn,width:"100%",padding:"11px 0",fontSize:14,opacity:(busy||gesperrt)?0.5:1,cursor:gesperrt?"not-allowed":"pointer"}} onClick={submit} disabled={busy||gesperrt}>{gesperrt?("Gesperrt – noch "+restMin+" Min."):(busy?"Anmelden…":"Anmelden")}</button>
           </>
         ):(

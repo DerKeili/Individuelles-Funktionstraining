@@ -15,11 +15,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    // Die App nutzt keine Anmeldung über Links — das Auswerten der URL beim
+    // Start kostet nur Zeit und kann den Aufbau verzögern.
+    detectSessionInUrl: false,
     storageKey: STORAGE_KEY,
     lock: ohneSperre,
-    // Automatisch Token erneuern bei Timing-Problemen
-    flowType: "implicit",
+    // "pkce" ist das aktuelle Standardverfahren und deutlich schneller als das
+    // veraltete "implicit", das zusätzliche Umwege über die URL nimmt.
+    flowType: "pkce",
   },
   global: {
     headers: {
@@ -38,8 +41,16 @@ supabase.auth.onAuthStateChange((event, session) => {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 export async function signIn(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  // Harte Zeitgrenze: hängt die Verbindung, kommt nach 15 Sekunden eine
+  // verständliche Meldung statt endlosem Warten.
+  const abbruch = new Promise((_, ab) =>
+    setTimeout(() => ab(new Error("Zeitüberschreitung bei der Anmeldung")), 15000));
+  const { data, error } = await Promise.race([
+    supabase.auth.signInWithPassword({ email, password }),
+    abbruch,
+  ]);
   if (error) throw new Error(error.message);
+  if (!data?.session) throw new Error("Anmeldung fehlgeschlagen — keine Sitzung erhalten.");
   return data;
 }
 export async function signOut() { await supabase.auth.signOut(); }
