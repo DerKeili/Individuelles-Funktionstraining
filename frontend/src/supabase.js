@@ -186,12 +186,20 @@ function friendlyUserError(msg) {
     return "Nur Administratoren dürfen Benutzer anlegen oder löschen.";
   if (m.includes("passwort zu kurz"))
     return "Das Passwort muss mindestens 8 Zeichen lang sein.";
+  // WICHTIG: Diese Prüfung muss VOR der Spaltenprüfung stehen — die Meldung zu
+  // einer fehlenden Funktion enthält ebenfalls "schema cache" und wurde sonst
+  // fälschlich als fehlende Spalte gemeldet.
+  if (m.includes("could not find the function") || m.includes("function public.")) {
+    const fn = (msg.match(/function (?:public\.)?([a-z_]+)/i) || [])[1];
+    return "Die Datenbankfunktion" + (fn ? " \"" + fn + "\"" : "") +
+           " passt nicht zur App-Version. Bitte das neueste SQL-Update in Supabase ausführen.";
+  }
   if (m.includes("schema cache") || m.includes("column")) {
     const feld = (msg.match(/'([a-z_]+)' column/) || [])[1];
     return "Die Datenbank kennt das Feld" + (feld ? " \"" + feld + "\"" : "") +
-           " noch nicht. Bitte das SQL-Update \"Arbeitszeit\" in Supabase ausführen.";
+           " noch nicht. Bitte das neueste SQL-Update in Supabase ausführen.";
   }
-  if (m.includes("could not find the function") || m.includes("does not exist"))
+  if (m.includes("does not exist"))
     return "Die Datenbankfunktion fehlt. Bitte das SQL-Update in Supabase ausführen.";
   if (m.includes("failed to fetch") || m.includes("networkerror"))
     return "Keine Verbindung zur Datenbank. Bitte Internetverbindung prüfen.";
