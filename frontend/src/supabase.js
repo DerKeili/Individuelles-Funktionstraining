@@ -100,6 +100,30 @@ export async function updateProfile(userId, updates) {
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
+// ─── Betriebseinstellungen ───────────────────────────────────────────
+export async function getEinstellungen() {
+  const { data, error } = await supabase.from("einstellungen").select("*").eq("id", 1).maybeSingle();
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+export async function saveEinstellungen(werte) {
+  const { data, error } = await supabase.from("einstellungen")
+    .update({ ...werte, geaendert_am: new Date().toISOString() })
+    .eq("id", 1).select().single();
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data;
+}
+
+// ─── Überstundenkonto ────────────────────────────────────────────────
+export async function getUeKonto(userId = null) {
+  let q = supabase.from("ueberstunden_konto").select("*").order("datum", { ascending: false });
+  if (userId) q = q.eq("user_id", userId);
+  const { data, error } = await q.limit(500);
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
 // ─── Änderungsprotokoll (nur Administratoren) ────────────────────────
 export async function getProtokoll({ limit = 500, von = null, bis = null } = {}) {
   let q = supabase.from("aenderungsprotokoll").select("*")

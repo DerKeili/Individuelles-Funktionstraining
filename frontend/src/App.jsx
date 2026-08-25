@@ -10,6 +10,7 @@ import {
   clearMustChangePassword,
   getJahreskonten, setJahreskonto, uebertragBerechnen,
   getPositionen, savePosition, deletePosition, getProtokoll,
+  getEinstellungen, saveEinstellungen, getUeKonto,
   createUeberstundenAntrag, getUeberstundenAntraege,
   decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
@@ -512,6 +513,17 @@ function tageBisGeburtstag(iso){
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
   {
+    version:"2026.08.22",
+    datum:"22. August 2026",
+    titel:"Einstellbare Regeln und Überstundenkonto",
+    punkte:[
+      "Die Leitung legt unter Mitarbeiter → „⚙️ Regeln“ fest, bis wann der Urlaub eingereicht sein muss und wie viel Prozent bis dahin verplant sein müssen.",
+      "Ebenfalls einstellbar: ob Überstunden überhaupt als freie Tage genommen werden dürfen.",
+      "Für einzelne Mitarbeiter lassen sich abweichende Fristen, Mindestanteile und Überstundenregeln hinterlegen.",
+      "Neu: das Überstundenkonto. Über das ⏱-Symbol in der Mitarbeiterliste ist jede Bewegung mit Datum, Menge und Kontostand nachvollziehbar.",
+    ],
+  },
+  {
     version:"2026.08.16",
     datum:"16. August 2026",
     titel:"Anleitung für alle",
@@ -577,12 +589,28 @@ function neueEintraege(gelesen){
 }
 
 // ─── Abgabefrist für die Jahresurlaubsplanung ────────────────────────────────
-const FRIST_MONAT=10, FRIST_TAG=30;      // 30. November (Monat 0-basiert)
-const MINDEST_ANTEIL=0.9;                // 90 % des Anspruchs müssen verplant sein
-// Frist für die Planung des Jahres "planJahr" – sie liegt im Jahr davor
-const fristFuer=planJahr=>new Date(planJahr-1,FRIST_MONAT,FRIST_TAG,23,59,59);
-function fristRest(planJahr){
-  const ms=fristFuer(planJahr).getTime()-Date.now();
+// Frist und Mindestanteil kommen aus den Betriebseinstellungen; je Mitarbeiter
+// kann davon abgewichen werden (Felder frist_datum und mindest_prozent).
+function fristFuer(planJahr,eins,u){
+  if(u?.frist_datum){
+    const[y,m,d]=String(u.frist_datum).split("-").map(Number);
+    return new Date(y,m-1,d,23,59,59);
+  }
+  const tag=eins?.frist_tag??30, monat=(eins?.frist_monat??11)-1;
+  return new Date(planJahr-1,monat,tag,23,59,59);
+}
+function mindestAnteil(eins,u){
+  const p=u?.mindest_prozent??eins?.mindest_prozent??90;
+  return Math.max(0,Math.min(100,p))/100;
+}
+// Darf diese Person Überstunden als freie Tage nehmen?
+function ueberstundenErlaubt(eins,u){
+  if(u?.ueberstunden_erlaubt!==null&&u?.ueberstunden_erlaubt!==undefined)
+    return !!u.ueberstunden_erlaubt;
+  return eins?.ueberstunden_erlaubt!==false;
+}
+function fristRest(planJahr,eins,u){
+  const ms=fristFuer(planJahr,eins,u).getTime()-Date.now();
   if(ms<=0)return null;
   const tage=Math.floor(ms/86400000);
   const stunden=Math.floor((ms%86400000)/3600000);
@@ -681,6 +709,8 @@ export default function App(){
   AKT_BL=bundesland;   // Feiertagslogik der Urlaubsberechnung auf das gewählte Bundesland setzen
   // Nur Geschäfts-/Praxisleitung und Administratoren sehen alle Bereiche und dürfen umschalten
   const darfBereichFiltern=isAdmin||["alle","sparte"].includes(posInfo(profile?.position).scope);
+  // Regeln dürfen Administratoren sowie Geschäfts-, Praxis- und Pflegedienstleitung ändern
+  const darfRegeln=darfBereichFiltern;
 
   // ── Session-Init ──────────────────────────────────────────────────
   // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
@@ -1158,6 +1188,11 @@ export default function App(){
     try{setJahreskonten(await getJahreskonten());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
   }
   const [posTick,setPosTick]=useState(0);   // erzwingt Neuaufbau nach Katalogänderung
+  const [einstellungen,setEinstellungen]=useState({
+    frist_tag:30,frist_monat:11,mindest_prozent:90,ueberstunden_erlaubt:true});
+  async function ladeEinstellungen(){
+    try{const e=await getEinstellungen();if(e)setEinstellungen(e);}catch(e){/* Tabelle evtl. neu */}
+  }
   async function ladePositionen(){
     try{
       if(uebernehmePositionen(await getPositionen()))setPosTick(t=>t+1);
@@ -1167,10 +1202,11 @@ export default function App(){
     if(!session||!profile)return;
     // Nacheinander mit kurzem Versatz, damit der Start nicht von einer
     // Welle gleichzeitiger Anfragen ausgebremst wird.
+    const t0=setTimeout(()=>ladeEinstellungen(),80);
     const t1=setTimeout(()=>ladePositionen(),150);
     const t2=setTimeout(()=>ladeJahreskonten(),400);
     const t3=setTimeout(()=>ladeUeAntraege(),700);
-    return()=>{clearTimeout(t1);clearTimeout(t2);clearTimeout(t3);};
+    return()=>{clearTimeout(t0);clearTimeout(t1);clearTimeout(t2);clearTimeout(t3);};
   },[session,profile]);
 
   async function handleUeAntrag(stunden,grund){
@@ -1761,12 +1797,17 @@ export default function App(){
         {/* Abgabefrist für die Jahresplanung */}
         <FristBanner planJahr={planJahr} tick={fristTick}
           eigene={profile&&!istPauschal(profile)?planungFuer(pwu.find(u=>u.id===session.user.id)||profile,planJahr):null}
-          offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<MINDEST_ANTEIL):[]}
+          offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<mindestAnteil(einstellungen,u)):[]}
+          eins={einstellungen} user={pwu.find(u=>u.id===session.user.id)||profile}
           istLeitung={isLeitung} darfBereichFiltern={darfBereichFiltern}
           onPlanen={()=>{if(year!==planJahr)setYear(planJahr);setView(isAdmin?"eintraege":"meinurlaub");}}/>
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
-        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin} onPositionen={isAdmin?()=>setModal({type:"positionen"}):null} onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
+        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin}
+          onPositionen={isAdmin?()=>setModal({type:"positionen"}):null}
+          onRegeln={darfRegeln?()=>setModal({type:"einstellungen"}):null}
+          onKonto={u=>setModal({type:"uekonto",data:u})}
+          onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
         {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="hilfe"&&<HilfeView user={profile} istLeitung={isLeitung} isAdmin={isAdmin}/>}
@@ -1815,6 +1856,10 @@ export default function App(){
         onDone={async(reqId)=>{if(reqId){try{await dismissResetRequest(reqId);}catch(e){}}setDashRefresh(k=>k+1);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
         onClose={()=>setModal(null)}
       />}
+      {modal?.type==="einstellungen"&&<EinstellungenModal werte={einstellungen}
+        onSpeichern={async w=>{const neu=await saveEinstellungen(w);setEinstellungen(neu);notify("Regeln gespeichert.");}}
+        onClose={()=>setModal(null)}/>}
+      {modal?.type==="uekonto"&&<UeKontoModal user={modal.data} onClose={()=>setModal(null)}/>}
       {modal?.type==="positionen"&&<PosVerwaltung profiles={profiles}
         onClose={()=>setModal(null)}
         onGeaendert={async()=>{await ladePositionen();}}/>}
@@ -1867,6 +1912,7 @@ export default function App(){
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
         bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)} zielUserId={modal.data.userId}
         zielUser={pwu.find(u=>u.id===modal.data.userId)}
+        ueErlaubt={ueberstundenErlaubt(einstellungen,pwu.find(u=>u.id===modal.data.userId))}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u||istPauschal(u))return null;   // Pauschalkräfte haben kein Kontingent
@@ -2359,9 +2405,10 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
 function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{fmtT(val)}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
 // ─── Countdown und Fortschritt der Jahresplanung ─────────────────────────────
-function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,darfBereichFiltern}){
-  const rest=fristRest(planJahr);
-  const erfuellt=eigene?eigene.anteil>=MINDEST_ANTEIL:true;
+function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,darfBereichFiltern,eins,user}){
+  const rest=fristRest(planJahr,eins,user);
+  const anteilSoll=mindestAnteil(eins,user);
+  const erfuellt=eigene?eigene.anteil>=anteilSoll:true;
   const abgelaufen=!rest;
   const [bereich,setBereich]=useState("alle");
   const gefilterteLeute=offeneLeute.filter(u=>!darfBereichFiltern||passtZuFilter(u,bereich));
@@ -2381,7 +2428,7 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
         </div>
         <div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:farbe,fontVariantNumeric:"tabular-nums"}}>
           {abgelaufen
-            ? "Frist am 30.11. abgelaufen"
+            ? "Abgabefrist abgelaufen"
             : rest.tage>0
               ? `noch ${rest.tage} ${rest.tage===1?"Tag":"Tage"} · ${rest.stunden} Std.`
               : `noch ${rest.stunden} Std. ${rest.minuten} Min.`}
@@ -2391,10 +2438,10 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
       {eigene&&(
         <>
           <div style={{fontSize:13,color:"#5a6b4a",marginBottom:8}}>
-            Bis zum <strong>30.11.{planJahr-1}</strong> müssen mindestens {Math.round(MINDEST_ANTEIL*100)} % des
+            Bis zum <strong>{fristFuer(planJahr,eins,user).toLocaleDateString("de-DE")}</strong> müssen mindestens {Math.round(anteilSoll*100)} % des
             Jahresurlaubs verplant sein. Du hast <strong>{fmtT(eigene.verplant)}</strong> von {fmtT(eigene.anspruch)} Tagen
-            eingetragen ({prozent} %){eigene.anspruch>0&&eigene.anteil<MINDEST_ANTEIL
-              ? ` — es fehlen noch ${fmtT(Math.max(0,Math.ceil((eigene.anspruch*MINDEST_ANTEIL-eigene.verplant)*2)/2))} Tage.`
+            eingetragen ({prozent} %){eigene.anspruch>0&&eigene.anteil<anteilSoll
+              ? ` — es fehlen noch ${fmtT(Math.max(0,Math.ceil((eigene.anspruch*anteilSoll-eigene.verplant)*2)/2))} Tage.`
               : "."}
             <div style={{fontSize:12,color:"#5a6b4a",marginTop:3}}>
               Aufteilung: {fmtT(eigene.genutztUrlaub)} Jahresurlaub
@@ -2407,8 +2454,8 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
             background:"linear-gradient(90deg,#dc2626 0%,#f0932b 40%,#facc15 65%,#7ab529 88%,#4d7c0f 100%)"}}>
             <div style={{position:"absolute",left:prozent+"%",right:0,top:0,bottom:0,
               background:"#e6ebdc",transition:"left .35s ease"}}/>
-            <div style={{position:"absolute",left:"calc("+Math.round(MINDEST_ANTEIL*100)+"% - 1px)",top:0,bottom:0,
-              width:2,background:"#2d3a2e",opacity:0.55}} title="Mindestens 90 % müssen verplant sein"/>
+            <div style={{position:"absolute",left:"calc("+Math.round(anteilSoll*100)+"% - 1px)",top:0,bottom:0,
+              width:2,background:"#2d3a2e",opacity:0.55}} title={"Mindestens "+Math.round(anteilSoll*100)+" % müssen verplant sein"}/>
           </div>
           {!erfuellt&&(
             <button onClick={onPlanen} style={{...S.savBtn,background:farbe,padding:"8px 18px",fontSize:13}}>
@@ -3145,10 +3192,200 @@ function HilfeView({user,istLeitung,isAdmin}){
   );
 }
 
+// ─── Betriebseinstellungen ───────────────────────────────────────────────────
+function EinstellungenModal({werte,onSpeichern,onClose}){
+  const [f,setF]=useState({...werte});
+  const [busy,setBusy]=useState(false);
+  const [fehler,setFehler]=useState("");
+  const MONATE=["Januar","Februar","März","April","Mai","Juni","Juli","August",
+                "September","Oktober","November","Dezember"];
+  async function speichern(){
+    setBusy(true);setFehler("");
+    try{
+      await onSpeichern({
+        frist_tag:parseInt(f.frist_tag)||30,
+        frist_monat:parseInt(f.frist_monat)||11,
+        mindest_prozent:Math.max(0,Math.min(100,parseInt(f.mindest_prozent)||0)),
+        ueberstunden_erlaubt:!!f.ueberstunden_erlaubt,
+      });
+      onClose();
+    }catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,maxWidth:520}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+            ⚙️ Regeln für die Urlaubsplanung
+          </span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          {fehler&&<div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",
+            border:"1px solid #fca5a5",borderRadius:6,padding:"8px 10px",marginBottom:12}}>⚠️ {fehler}</div>}
+
+          <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:8,
+            textTransform:"uppercase",letterSpacing:"0.05em"}}>Abgabefrist</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1.4fr",gap:10,marginBottom:8}}>
+            <div><label style={S.lbl}>Tag</label>
+              <input style={S.inp} type="number" min="1" max="31" value={f.frist_tag}
+                onChange={e=>setF(p=>({...p,frist_tag:e.target.value}))}/>
+            </div>
+            <div><label style={S.lbl}>Monat</label>
+              <select style={S.inp} value={f.frist_monat}
+                onChange={e=>setF(p=>({...p,frist_monat:e.target.value}))}>
+                {MONATE.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{fontSize:11.5,color:"#8aaa5f",marginBottom:16,lineHeight:1.5}}>
+            Bis zu diesem Tag muss der Urlaub für das <strong>Folgejahr</strong> eingetragen sein.
+            Aktuell: {parseInt(f.frist_tag)||30}. {MONATE[(parseInt(f.frist_monat)||11)-1]}.
+          </div>
+
+          <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:8,
+            textTransform:"uppercase",letterSpacing:"0.05em"}}>Mindestens zu verplanen</div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+            <input type="range" min="0" max="100" step="5" value={f.mindest_prozent}
+              onChange={e=>setF(p=>({...p,mindest_prozent:e.target.value}))}
+              style={{flex:1,accentColor:"#7ab529"}}/>
+            <div style={{minWidth:64,textAlign:"right",fontSize:17,fontWeight:800,color:"#4a6b0f"}}>
+              {f.mindest_prozent} %
+            </div>
+          </div>
+          <div style={{fontSize:11.5,color:"#8aaa5f",marginBottom:16,lineHeight:1.5}}>
+            Anteil des Jahresurlaubs, der bis zur Frist eingetragen sein muss.
+            Bei 30 Urlaubstagen sind das <strong>{fmtT(Math.ceil(30*(parseInt(f.mindest_prozent)||0)/100*2)/2)} Tage</strong>.
+          </div>
+
+          <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:8,
+            textTransform:"uppercase",letterSpacing:"0.05em"}}>Überstunden</div>
+          <label style={{display:"flex",alignItems:"flex-start",gap:9,fontSize:13,color:"#2d3a2e",
+            background:f.ueberstunden_erlaubt?"#f7fce8":"#f8faf0",
+            border:"1.5px solid "+(f.ueberstunden_erlaubt?"#7ab529":"#d5e8a0"),
+            borderRadius:8,padding:"11px 13px",cursor:"pointer",fontWeight:600}}>
+            <input type="checkbox" checked={!!f.ueberstunden_erlaubt}
+              onChange={e=>setF(p=>({...p,ueberstunden_erlaubt:e.target.checked}))}
+              style={{width:17,height:17,marginTop:2,flexShrink:0}}/>
+            <span>Überstunden dürfen als freie Tage genommen werden
+              <div style={{fontWeight:400,fontSize:11.5,color:"#5a6b4a",marginTop:3}}>
+                Ohne Haken zählen ausschließlich Urlaubstage. Bereits eingetragene
+                Überstundentage bleiben bestehen.
+              </div>
+            </span>
+          </label>
+
+          <div style={{fontSize:11.5,color:"#8aaa5f",marginTop:16,paddingTop:12,
+            borderTop:"1px solid #edf5ee",lineHeight:1.5}}>
+            Diese Regeln gelten für alle Mitarbeiter. Einzelne Ausnahmen lassen sich
+            im Mitarbeiter-Dialog festlegen.
+          </div>
+        </div>
+        <div style={S.mFt}>
+          <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy} onClick={speichern}>
+            {busy?"Speichert…":"Speichern"}
+          </button>
+          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Überstundenkonto eines Mitarbeiters ─────────────────────────────────────
+function UeKontoModal({user,onClose}){
+  const [zeilen,setZeilen]=useState([]);
+  const [laden,setLaden]=useState(true);
+  const [fehler,setFehler]=useState("");
+  useEffect(()=>{
+    (async()=>{
+      try{setZeilen(await getUeKonto(user.id));}
+      catch(e){setFehler(e.message);}
+      finally{setLaden(false);}
+    })();
+  },[user.id]);
+  const std=stdProTag(user);
+  const ART={antrag:["Antrag","#15803d","#dcfce7"],urlaub:["Freie Tage","#92400e","#fef3c7"],
+             korrektur:["Korrektur","#0369a1","#e0f2fe"]};
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,width:620}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+            ⏱ Überstundenkonto · {user.vorname} {user.nachname}
+          </span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          <div style={{background:"#f7fce8",border:"1px solid #d5e8a0",borderRadius:8,
+            padding:"11px 13px",marginBottom:14,display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div><div style={{fontSize:11,color:"#5a6b4a"}}>Aktueller Stand</div>
+              <div style={{fontSize:19,fontWeight:800,color:"#4a6b0f"}}>
+                {fmtT(user.ueberstunden||0)} Tage
+              </div></div>
+            {std>0&&<div><div style={{fontSize:11,color:"#5a6b4a"}}>entspricht</div>
+              <div style={{fontSize:19,fontWeight:800,color:"#4a6b0f"}}>
+                {fmtStd((user.ueberstunden||0)*std)} Std.
+              </div></div>}
+            <div><div style={{fontSize:11,color:"#5a6b4a"}}>Bewegungen</div>
+              <div style={{fontSize:19,fontWeight:800,color:"#4a6b0f"}}>{zeilen.length}</div></div>
+          </div>
+
+          {fehler&&<div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",
+            border:"1px solid #fca5a5",borderRadius:6,padding:"8px 10px"}}>⚠️ {fehler}</div>}
+
+          {laden?<div style={{fontSize:13,color:"#8aaa5f"}}>Wird geladen…</div>
+          :zeilen.length===0?(
+            <div style={{background:"#fff",border:"1px dashed #d5e8a0",borderRadius:8,
+              padding:16,fontSize:13,color:"#8aaa5f"}}>
+              Noch keine Bewegungen. Genehmigte Anträge und genommene freie Tage
+              erscheinen hier automatisch.
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {zeilen.map(z=>{
+                const[lbl,col,bg]=ART[z.art]||[z.art,"#5a6b4a","#f0f4f0"];
+                const plus=Number(z.tage)>0;
+                return(
+                  <div key={z.id} style={{background:"#fff",border:"1px solid #d5e8a0",
+                    borderRadius:8,padding:"9px 11px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,background:bg,color:col,borderRadius:20,
+                        padding:"3px 9px",fontWeight:700}}>{lbl}</span>
+                      <strong style={{fontSize:14,color:plus?"#15803d":"#b45309"}}>
+                        {plus?"+":""}{fmtT(z.tage)} T
+                        {z.stunden!==null&&z.stunden!==undefined&&
+                          <span style={{fontWeight:400,fontSize:12}}> ({plus?"+":""}{fmtStd(z.stunden)} Std.)</span>}
+                      </strong>
+                      <span style={{marginLeft:"auto",fontSize:12,color:"#5a6b4a"}}>
+                        Stand danach: <strong>{fmtT(z.saldo_danach)} T</strong>
+                      </span>
+                    </div>
+                    <div style={{fontSize:12,color:"#5a6b4a",marginTop:3}}>{z.beschreibung}</div>
+                    <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>
+                      {new Date(z.datum).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",
+                        year:"numeric",hour:"2-digit",minute:"2-digit"})}
+                      {z.erfasst_name?" · durch "+z.erfasst_name:""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div style={S.mFt}>
+          <button style={S.canBtn} onClick={onClose}>Schließen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
-function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositionen}){
+function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositionen,onRegeln,onKonto}){
   const schmal=useSchmal();
   const zahlen=u=>{
     const e=u.entries||[];
@@ -3161,6 +3398,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,gap:10,flexWrap:"wrap"}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {onRegeln&&<button style={S.canBtn} onClick={onRegeln}>⚙️ Regeln</button>}
           {onPositionen&&<button style={S.canBtn} onClick={onPositionen}>⚙️ Positionen</button>}
           {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Anlegen</button>}
         </div>
@@ -3190,6 +3428,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
               </div>
               {pend>0&&<div style={{marginBottom:10}}><Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/></div>}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onKonto&&onKonto(u)}>⏱ Konto</button>
                 <button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onEdit(u)}>✏️ Bearbeiten</button>
                 {canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171",padding:"7px 14px"}} onClick={()=>onDelete(u.id)}>🗑 Löschen</button>}
               </div>
@@ -3204,6 +3443,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
         <h2 style={S.pgT}>Mitarbeiter ({users.length})</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {onRegeln&&<button style={S.canBtn} onClick={onRegeln}>⚙️ Regeln</button>}
           {onPositionen&&<button style={S.canBtn} onClick={onPositionen}>⚙️ Positionen</button>}
           {canDelete&&<button style={S.addBtn} onClick={onAdd}>+ Mitarbeiter anlegen</button>}
         </div>
@@ -3223,7 +3463,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
                   <td style={S.td}>{istPauschal(u)?<span style={{fontSize:11,color:"#92400e",background:"#fff7ed",borderRadius:10,padding:"2px 8px",fontWeight:600}}>Pauschal</span>:<>{fmtT(urlT)} / {u.urlaubstage||30} T</>}</td>
                   <td style={S.td}>{istPauschal(u)?"—":<>{fmtT(ueT)} / {u.ueberstunden||0} T</>}</td>
                   <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/>}</td>
-                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
+                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} title="Überstundenkonto" onClick={()=>onKonto&&onKonto(u)}>⏱</button><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
                 </tr>
               );
             })}
@@ -4134,6 +4374,9 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     geschlecht:initial?.geschlecht||"d",
     pauschal:initial?.pauschal??false,
     fronleichnam:initial?.fronleichnam??false,
+    frist_datum:initial?.frist_datum||"",
+    mindest_prozent:initial?.mindest_prozent??null,
+    ueberstunden_erlaubt:initial?.ueberstunden_erlaubt??null,
     wochenstunden:initial?.wochenstunden??40,
     arbeitstage_woche:initial?.arbeitstage_woche??5,
     color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
@@ -4188,7 +4431,10 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     setBusy(true);
     try{
       entwurfLoeschen();
-      await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,fronleichnam:!!f.fronleichnam,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
+      await onSave({...f,email:f.email.trim().toLowerCase(),pauschal:!!f.pauschal,fronleichnam:!!f.fronleichnam,
+        frist_datum:f.frist_datum||null,
+        mindest_prozent:f.mindest_prozent===null||f.mindest_prozent===""?null:parseInt(f.mindest_prozent),
+        ueberstunden_erlaubt:f.ueberstunden_erlaubt,wochenstunden:f.pauschal?0:(parseFloat(f.wochenstunden)||0),arbeitstage_woche:f.pauschal?0:(parseInt(f.arbeitstage_woche)||5),urlaubstage:f.pauschal?0:(parseInt(f.urlaubstage)||0),ueberstunden:f.pauschal?0:(parseInt(f.ueberstunden)||0),resturlaub:f.pauschal?0:(parseInt(f.resturlaub)||0),geburtsdatum:f.geburtsdatum||null,einstellungsdatum:f.einstellungsdatum||null,...(!initial?{password:newUserPw}:{})});
     }catch(e){
       setSaveErr(e.message||"Speichern fehlgeschlagen.");
     }finally{setBusy(false);}
@@ -4280,6 +4526,28 @@ Thomas Keilig`;
                 onChange={e=>setF(p=>({...p,pauschal:e.target.checked}))} style={{width:17,height:17}}/>
               <span>Pauschalkraft — keine feste Stundenzahl, kein fester Urlaubsanspruch</span>
             </label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><label style={S.lbl}>Eigene Abgabefrist</label>
+                <input style={S.dateInp} type="date" value={f.frist_datum||""}
+                  onChange={e=>setF(p=>({...p,frist_datum:e.target.value}))}/>
+                <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>Leer = betriebliche Vorgabe</div>
+              </div>
+              <div><label style={S.lbl}>Eigener Mindestanteil (%)</label>
+                <input style={S.inp} type="number" min="0" max="100" placeholder="Vorgabe"
+                  value={f.mindest_prozent??""}
+                  onChange={e=>setF(p=>({...p,mindest_prozent:e.target.value===""?null:e.target.value}))}/>
+                <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>Leer = betriebliche Vorgabe</div>
+              </div>
+            </div>
+            <div><label style={S.lbl}>Überstunden als freie Tage</label>
+              <select style={S.inp}
+                value={f.ueberstunden_erlaubt===null||f.ueberstunden_erlaubt===undefined?"":String(f.ueberstunden_erlaubt)}
+                onChange={e=>setF(p=>({...p,ueberstunden_erlaubt:e.target.value===""?null:e.target.value==="true"}))}>
+                <option value="">Betriebliche Vorgabe übernehmen</option>
+                <option value="true">Erlaubt</option>
+                <option value="false">Nicht erlaubt</option>
+              </select>
+            </div>
             <label style={{display:"flex",alignItems:"flex-start",gap:9,fontSize:13,color:"#2d3a2e",
               background:f.fronleichnam?"#f7fce8":"#f8faf0",border:"1.5px solid "+(f.fronleichnam?"#7ab529":"#d5e8a0"),
               borderRadius:8,padding:"10px 12px",cursor:"pointer",fontWeight:600}}>
@@ -4548,7 +4816,7 @@ Thomas Keilig`;
 }
 
 // ─── Entry Modal ──────────────────────────────────────────────────────────────
-function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId,zielUser}){
+function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,currentUserId,kontingent,zielBereich,bereichVon,zielUserId,zielUser,ueErlaubt=true}){
   const[type,setType]=useState(initial?.type||"urlaub");
   const[von,setVon]=useState(initial?.von||"");
   const[bis,setBis]=useState(initial?.bis||"");
@@ -4572,7 +4840,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
   const fehlend=pruefen?Math.max(0,Math.round((wd-verfuegbar)*2)/2):0;
   // Überstundenabbau ist jederzeit möglich und belastet den Urlaubsanspruch nicht
   const ueberzogen=(!initial&&type==="ueberstunden"&&k&&zeitraumGesetzt)?Math.max(0,Math.round((wd-restUeber)*2)/2):0;
-  const ausgleichMoeglich=restUeber;
+  const ausgleichMoeglich=ueErlaubt?restUeber:0;
   const gewaehlteReserve=quelle==="ueberstunden"?restUeber:0;
   // Eigene Doppelbuchung: überschneidet sich der Zeitraum mit einem eigenen Eintrag?
   const eigeneUeberschneidung=(()=>{
@@ -4667,7 +4935,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             <label style={S.lbl}>Wovon soll der Zeitraum abgezogen werden?</label>
             <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:5}}>
               {[["urlaub","🏖 Urlaub",restVorjahr>0?"Resturlaub aus dem Vorjahr wird automatisch zuerst genutzt":"Vom Jahresurlaub",k?fmtT(verfuegbar)+" T verfügbar":null],
-                ["ueberstunden","⏱ Überstunden",k&&k.stdProTag>0?"Belastet den Urlaubsanspruch nicht":"Belastet den Urlaubsanspruch nicht",k?fmtT(restUeber)+" T verfügbar"+(k.stdProTag>0?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""):null]
+                ...(ueErlaubt?[["ueberstunden","⏱ Überstunden","Belastet den Urlaubsanspruch nicht",k?fmtT(restUeber)+" T verfügbar"+(k.stdProTag>0?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""):null]]:[])
               ].map(([wert,titel,erklaerung,vorrat])=>{
                 const aktiv=type===wert;
                 const leer=k&&((wert==="urlaub"&&verfuegbar<=0)||(wert==="ueberstunden"&&restUeber<=0));
@@ -4687,6 +4955,11 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
               })}
               {initial&&type==="resturlaub"&&(
                 <div style={{fontSize:12,color:"#8aaa5f"}}>Dieser Eintrag läuft als Resturlaub aus dem Vorjahr.</div>
+              )}
+              {!ueErlaubt&&(
+                <div style={{fontSize:11,color:"#8aaa5f"}}>
+                  Der Abbau von Überstunden über freie Tage ist derzeit nicht freigegeben.
+                </div>
               )}
             </div>
           </div>
