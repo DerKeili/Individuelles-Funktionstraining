@@ -513,12 +513,22 @@ function tageBisGeburtstag(iso){
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
   {
+    version:"2026.08.23",
+    datum:"23. August 2026",
+    titel:"Freizeitausgleich statt Urlaub",
+    punkte:[
+      "Werden Überstunden als freie Tage genommen, heißt das jetzt überall „Freizeitausgleich“ und nicht mehr „Urlaub“.",
+      "Das entspricht der rechtlichen Einordnung: Freizeitausgleich ist Ausgleich für geleistete Mehrarbeit und kein Urlaubstag im Sinne des Bundesurlaubsgesetzes.",
+      "Betroffen sind Antragsdialog, Kalender, Einträge, Ausdrucke, Überstundenkonto und Anleitung.",
+    ],
+  },
+  {
     version:"2026.08.22",
     datum:"22. August 2026",
     titel:"Einstellbare Regeln und Überstundenkonto",
     punkte:[
       "Die Leitung legt unter Mitarbeiter → „⚙️ Regeln“ fest, bis wann der Urlaub eingereicht sein muss und wie viel Prozent bis dahin verplant sein müssen.",
-      "Ebenfalls einstellbar: ob Überstunden überhaupt als freie Tage genommen werden dürfen.",
+      "Ebenfalls einstellbar: ob Freizeitausgleich überhaupt genommen werden darf.",
       "Für einzelne Mitarbeiter lassen sich abweichende Fristen, Mindestanteile und Überstundenregeln hinterlegen.",
       "Neu: das Überstundenkonto. Über das ⏱-Symbol in der Mitarbeiterliste ist jede Bewegung mit Datum, Menge und Kontostand nachvollziehbar.",
     ],
@@ -574,7 +584,7 @@ const CHANGELOG=[
       "Urlaubsanspruch und Resturlaub werden ab sofort für jedes Kalenderjahr getrennt geführt. Beim Jahreswechsel wird nicht verbrauchter Urlaub als Resturlaub übertragen.",
       "Neue Abgabefrist: Bis zum 30.11. müssen mindestens 90 % des Urlaubs für das Folgejahr verplant sein. Oben erscheint ein Countdown mit Fortschrittsbalken.",
       "Resturlaub aus dem Vorjahr wird bei einem Antrag automatisch zuerst verbraucht.",
-      "Überstunden können jederzeit als freie Tage beantragt werden, ohne den Urlaubsanspruch zu belasten.",
+      "Freizeitausgleich kann jederzeit beantragt werden, ohne den Urlaubsanspruch zu belasten.",
       "Mitarbeiter können eine Änderung ihrer Überstunden beantragen; die Leitung genehmigt oder lehnt ab.",
       "Neue Position „Rezeption“ sowie Pauschalkräfte ohne feste Stundenzahl und ohne Urlaubsanspruch.",
       "Fronleichnam lässt sich je Mitarbeiter als Feiertag hinterlegen (Landkreis Bautzen).",
@@ -650,7 +660,7 @@ const IST_IOS=(()=>{
 
 // Pauschalkraft: keine feste Wochenstundenzahl, kein fester Urlaubsanspruch
 const istPauschal=u=>!!u?.pauschal;
-const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+const TYP_LABEL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
 const ROLLEN=[["mitarbeiter","Mitarbeiter"],["admin","Administrator"]];
 const rolleLabel=r=>r==="admin"?"Administrator":"Mitarbeiter";
 const ca=(hex,a)=>{const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;};
@@ -2195,7 +2205,7 @@ function MonthCard({year,month,entries,profiles,bl,showFerien=true,showFeiertage
           else if(fer&&!fei){bg="#fce7f3";tc="#9d174d";}
           else if(fei&&fer){bg="linear-gradient(135deg,#fce7f3 50%,#d4b896 50%)";tc="#7c2d4e";}
           function hEnter(ev){
-            const lines=[],TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+            const lines=[],TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
             if(fei)lines.push({color:"#c9a07a",text:"🎉 "+fei});
             if(fer)lines.push({color:"#f9a8d4",text:"🌸 "+fer});
             mk.forEach(m=>lines.push({color:m.color,text:`${m.name} · ${TL[m.type]||m.type}`}));
@@ -2297,7 +2307,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
     await dismissResetRequest(id);
     setResetRequests(p=>p.filter(r=>r.id!==id));
   }
-  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
   return(
     <div>
       <h2 style={S.pgT}>Dashboard {year}</h2>
@@ -2369,7 +2379,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
               <div style={{fontSize:11,color:"#5a6b4a",marginBottom:10,lineHeight:1.5}}>
                 🏖 <strong>{fmtT(total)} / {u.urlaubstage||30}</strong> Urlaubstage
                 {rstU>0&&<> · davon {fmtT(rstU)} Resturlaub</>}
-                {ueU>0&&<> &nbsp;|&nbsp; ⏱ zusätzlich <strong>{fmtT(ueU)} T</strong> aus Überstunden
+                {ueU>0&&<> &nbsp;|&nbsp; ⏱ zusätzlich <strong>{fmtT(ueU)} T</strong> Freizeitausgleich
                   {stdProTag(u)>0&&<> ({fmtStd(ueU*stdProTag(u))} Std.)</>}</>}
               </div>
               </>)}
@@ -2446,7 +2456,7 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
             <div style={{fontSize:12,color:"#5a6b4a",marginTop:3}}>
               Aufteilung: {fmtT(eigene.genutztUrlaub)} Jahresurlaub
               {eigene.genutztRest>0&&<> · {fmtT(eigene.genutztRest)} Resturlaub aus dem Vorjahr</>}
-              {eigene.genutztUeber>0&&<> · zusätzlich {fmtT(eigene.genutztUeber)} Tage über Überstunden (zählen nicht zum Anspruch)</>}
+              {eigene.genutztUeber>0&&<> · zusätzlich {fmtT(eigene.genutztUeber)} Tage Freizeitausgleich (zählen nicht zum Urlaubsanspruch)</>}
             </div>
           </div>
           {/* Balken mit Verlauf: rot → orange → gelb → grün, gefüllt bis zum erreichten Anteil */}
@@ -3023,8 +3033,8 @@ function HilfeView({user,istLeitung,isAdmin}){
         <ol style={{paddingLeft:20,margin:"0 0 10px"}}>
           <li style={LI}>Wähle zuerst <strong>Von</strong> und <strong>Bis</strong>. Der Antrag umfasst
             immer den gesamten Zeitraum, auch Wochenenden und Feiertage — diese kosten aber keinen Urlaubstag.</li>
-          <li style={LI}>Entscheide, <strong>wovon abgezogen</strong> werden soll: vom Urlaub oder von
-            deinen Überstunden.</li>
+          <li style={LI}>Entscheide, <strong>wovon abgezogen</strong> werden soll: vom Urlaub oder als
+            Freizeitausgleich von deinem Überstundenkonto.</li>
           <li style={LI}>Unter „So wird gebucht“ siehst du genau, welche Tage von welchem Konto abgehen.</li>
           <li style={LI}>Mit <strong>Beantragen</strong> geht der Antrag an deine Leitung.</li>
         </ol>
@@ -3055,15 +3065,16 @@ function HilfeView({user,istLeitung,isAdmin}){
         </p>
       </HilfeAbschnitt>
 
-      <HilfeAbschnitt titel="⏱ Überstunden">
+      <HilfeAbschnitt titel="⏱ Überstunden und Freizeitausgleich">
         <p style={P}>
           Über „⏱ Überstunden melden“ beantragst du eine Änderung deines Kontos: eine
           <strong> positive Zahl</strong> für geleistete Mehrarbeit, eine <strong>negative Zahl</strong>
           für Abbau. Die Leitung prüft und genehmigt.
         </p>
         <p style={P}>
-          Genehmigte Überstunden kannst du jederzeit als freie Tage nehmen — wähle beim Urlaubsantrag
-          einfach „⏱ Überstunden“. Dein Urlaubsanspruch bleibt davon unberührt.
+          Genehmigte Überstunden kannst du jederzeit als <strong>Freizeitausgleich</strong> nehmen —
+          wähle beim Antrag einfach „⏱ Freizeitausgleich“. Dein Urlaubsanspruch bleibt davon unberührt.
+          Rechtlich sind das keine Urlaubstage, sondern Ausgleich für geleistete Mehrarbeit.
         </p>
         <Hinweis>
           Deine gestellten Anträge findest du mit Status unter „🏖 Mein Urlaub“. Solange sie offen sind,
@@ -3268,10 +3279,10 @@ function EinstellungenModal({werte,onSpeichern,onClose}){
             <input type="checkbox" checked={!!f.ueberstunden_erlaubt}
               onChange={e=>setF(p=>({...p,ueberstunden_erlaubt:e.target.checked}))}
               style={{width:17,height:17,marginTop:2,flexShrink:0}}/>
-            <span>Überstunden dürfen als freie Tage genommen werden
+            <span>Freizeitausgleich ist erlaubt
               <div style={{fontWeight:400,fontSize:11.5,color:"#5a6b4a",marginTop:3}}>
-                Ohne Haken zählen ausschließlich Urlaubstage. Bereits eingetragene
-                Überstundentage bleiben bestehen.
+                Mitarbeiter dürfen Überstunden als freie Tage abbauen. Ohne Haken zählen
+                ausschließlich Urlaubstage; bereits eingetragene Tage bleiben bestehen.
               </div>
             </span>
           </label>
@@ -3306,7 +3317,7 @@ function UeKontoModal({user,onClose}){
     })();
   },[user.id]);
   const std=stdProTag(user);
-  const ART={antrag:["Antrag","#15803d","#dcfce7"],urlaub:["Freie Tage","#92400e","#fef3c7"],
+  const ART={antrag:["Antrag","#15803d","#dcfce7"],urlaub:["Freizeitausgleich","#92400e","#fef3c7"],
              korrektur:["Korrektur","#0369a1","#e0f2fe"]};
   return(
     <div style={S.overlay}>
@@ -3476,7 +3487,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
 
 // ─── Einträge Admin ───────────────────────────────────────────────────────────
 function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern,ueAntraege=[],onUeEntscheiden}){
-  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
   const yearStr=String(year);
   const [bereich,setBereich]=useState("alle");
   const [nurPerson,setNurPerson]=useState("");   // Filter auf einen Mitarbeiter
@@ -3741,7 +3752,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
                     <span style={{color:offen<0?"#dc2626":"#4a6b0f"}}>
                       {offen>=0?`noch ${fmtT(offen)} offen`:`${fmtT(Math.abs(offen))} zu viel`}
                     </span>
-                    {ue>0&&<span style={{color:"#a78bfa"}}>⏱ zusätzlich {fmtT(ue)} T aus Überstunden
+                    {ue>0&&<span style={{color:"#a78bfa"}}>⏱ zusätzlich {fmtT(ue)} T Freizeitausgleich
                       {std>0?` (${fmtStd(ue*std)} Std.)`:""} · Konto {fmtT(p.ueberstunden||0)} T</span>}
                   </div>
                 );
@@ -3759,7 +3770,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
 
 // ─── Mein Urlaub ─────────────────────────────────────────────────────────────
 function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDelete,ueAntraege=[],onUeAntrag,onUeZurueck}){
-  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
   const yearStr=String(year);
   const allEntries=user?.entries||[];
   // Alle Einträge für Summenberechnung, nur Jahr für Tabelle
@@ -3794,7 +3805,7 @@ function MeinUrlaub({user,year,onAdd,onEdit,onDelete,onRequestChange,onRequestDe
             const sorted=[...allEntries].filter(e=>e.type!=="ueberstunden").sort((a,b)=>a.von.localeCompare(b.von));
             const urlT=eDays(allEntries,"urlaub",user),rstT=eDays(allEntries,"resturlaub",user);
             const rem=(user?.urlaubstage||30)-(urlT+rstT);
-            const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+            const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
             const fde=s=>s?new Date(s).toLocaleDateString("de-DE"):"";
             const pdfYear=year||new Date().getFullYear();
             w.document.write(`<!DOCTYPE html><html lang="de"><head>
@@ -4539,7 +4550,7 @@ Thomas Keilig`;
                 <div style={{fontSize:11,color:"#8aaa5f",marginTop:3}}>Leer = betriebliche Vorgabe</div>
               </div>
             </div>
-            <div><label style={S.lbl}>Überstunden als freie Tage</label>
+            <div><label style={S.lbl}>Freizeitausgleich</label>
               <select style={S.inp}
                 value={f.ueberstunden_erlaubt===null||f.ueberstunden_erlaubt===undefined?"":String(f.ueberstunden_erlaubt)}
                 onChange={e=>setF(p=>({...p,ueberstunden_erlaubt:e.target.value===""?null:e.target.value==="true"}))}>
@@ -4897,7 +4908,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
       if(nachRest>0)stufen.push({typ:"urlaub",menge:Math.min(restJahr,nachRest),text:null});
       const offen=Math.max(0,nachRest-Math.min(restJahr,nachRest));
       if(offen>0&&quelle)stufen.push({typ:quelle,menge:offen,
-        text:"Ausgleich aus "+(quelle==="resturlaub"?"Resturlaub":"Überstunden")});
+        text:quelle==="resturlaub"?"Resturlaub aus dem Vorjahr":"Freizeitausgleich aus dem Überstundenkonto"});
 
       const echte=stufen.filter(x=>x.menge>0);
       if(echte.length>1){
@@ -4935,7 +4946,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             <label style={S.lbl}>Wovon soll der Zeitraum abgezogen werden?</label>
             <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:5}}>
               {[["urlaub","🏖 Urlaub",restVorjahr>0?"Resturlaub aus dem Vorjahr wird automatisch zuerst genutzt":"Vom Jahresurlaub",k?fmtT(verfuegbar)+" T verfügbar":null],
-                ...(ueErlaubt?[["ueberstunden","⏱ Überstunden","Belastet den Urlaubsanspruch nicht",k?fmtT(restUeber)+" T verfügbar"+(k.stdProTag>0?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""):null]]:[])
+                ...(ueErlaubt?[["ueberstunden","⏱ Freizeitausgleich","Abbau von Überstunden — belastet den Urlaubsanspruch nicht",k?fmtT(restUeber)+" T Guthaben"+(k.stdProTag>0?" (≈ "+fmtStd(restUeber*k.stdProTag)+" Std.)":""):null]]:[])
               ].map(([wert,titel,erklaerung,vorrat])=>{
                 const aktiv=type===wert;
                 const leer=k&&((wert==="urlaub"&&verfuegbar<=0)||(wert==="ueberstunden"&&restUeber<=0));
@@ -4958,7 +4969,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
               )}
               {!ueErlaubt&&(
                 <div style={{fontSize:11,color:"#8aaa5f"}}>
-                  Der Abbau von Überstunden über freie Tage ist derzeit nicht freigegeben.
+                  Freizeitausgleich ist derzeit nicht freigegeben.
                 </div>
               )}
             </div>
@@ -4973,7 +4984,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
             <span>Urlaubstage (ohne Feiertage): <strong style={{color:wd===0?"#dc2626":"#2d3a2e"}}>{fmtT(wd)}</strong></span>
             {pruefen&&<span>Verfügbar: <strong style={{color:fehlend>0?"#dc2626":"#4a6b0f"}}>{fmtT(verfuegbar)} T</strong>
               {restVorjahr>0&&<span style={{color:"#8aaa5f",fontWeight:400}}> (davon {fmtT(restVorjahr)} Resturlaub)</span>}</span>}
-            {!initial&&type==="ueberstunden"&&k&&<span>Überstundenkonto: <strong style={{color:ueberzogen>0?"#dc2626":"#4a6b0f"}}>{fmtT(restUeber)} T</strong></span>}
+            {!initial&&type==="ueberstunden"&&k&&<span>Überstundenguthaben: <strong style={{color:ueberzogen>0?"#dc2626":"#4a6b0f"}}>{fmtT(restUeber)} T</strong></span>}
           </div>}
 
           {/* Warum werden Tage nicht gezählt? */}
@@ -5014,13 +5025,13 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           {!initial&&wd>0&&!doppelt&&k&&(()=>{
             const zeilen=[];
             if(type==="ueberstunden"){
-              zeilen.push(["⏱ Überstunden",Math.min(wd,restUeber)]);
+              zeilen.push(["⏱ Freizeitausgleich",Math.min(wd,restUeber)]);
             }else{
               const ausRest=Math.min(restVorjahr,wd);
               if(ausRest>0)zeilen.push(["↩ Resturlaub Vorjahr",ausRest]);
               const ausJahr=Math.min(restJahr,Math.max(0,wd-ausRest));
               if(ausJahr>0)zeilen.push(["🏖 Jahresurlaub",ausJahr]);
-              if(fehlend>0&&quelle==="ueberstunden")zeilen.push(["⏱ Überstunden",fehlend]);
+              if(fehlend>0&&quelle==="ueberstunden")zeilen.push(["⏱ Freizeitausgleich",fehlend]);
             }
             if(zeilen.length===0)return null;
             return(
@@ -5045,7 +5056,7 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
           {/* Überstundenkonto reicht nicht */}
           {ueberzogen>0&&(
             <div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:8,padding:"10px 12px"}}>
-              <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:2}}>⛔ Nicht genügend Überstunden</div>
+              <div style={{fontWeight:700,fontSize:13,color:"#b91c1c",marginBottom:2}}>⛔ Nicht genügend Überstundenguthaben</div>
               <div style={{fontSize:12,color:"#b91c1c"}}>
                 Der Zeitraum benötigt {fmtT(wd)} Tage, auf dem Überstundenkonto stehen {fmtT(restUeber)} Tage.
               </div>
@@ -5065,14 +5076,14 @@ function EntryModal({title,year,isAdmin,initial,onSave,onClose,allEntries,curren
               {ausgleichMoeglich>0?(
                 <div>
                   <div style={{fontSize:12,color:"#92400e",fontWeight:600,marginBottom:6}}>
-                    Die fehlenden Tage werden über die Überstunden ausgeglichen:
+                    Die fehlenden Tage werden als Freizeitausgleich gebucht:
                   </div>
                   <div style={{fontSize:12,color:"#92400e",padding:"3px 0"}}>
-                    ⏱ <strong>{fmtT(fehlend)} {fehlend===1?"Tag":"Tage"}</strong> aus dem Überstundenkonto
+                    ⏱ <strong>{fmtT(fehlend)} {fehlend===1?"Tag":"Tage"}</strong> als Freizeitausgleich aus dem Überstundenkonto
                     {k?.stdProTag?" ("+fmtStd(fehlend*k.stdProTag)+" Std.)":""} · danach verbleiben {fmtT(restUeber-fehlend)} T.
                   </div>
                   <div style={{fontSize:11,color:"#92400e",marginTop:4}}>
-                    Möchtest du den gesamten Zeitraum über Überstunden nehmen, wähle oben „⏱ Überstunden".
+                    Möchtest du den gesamten Zeitraum als Freizeitausgleich nehmen, wähle oben „⏱ Freizeitausgleich".
                   </div>
                 </div>
               ):(
@@ -5244,7 +5255,7 @@ function PrintKal({year,entries,profiles,state,stateName,onClose,useNewWindow=fa
   );
 }
 function PrintList({year,users,stateName,onClose}){
-  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Überstunden"};
+  const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
   const ps={wrap:{position:"fixed",inset:0,background:"#fff",color:"#111",fontFamily:"Arial,sans-serif",padding:14,zIndex:9999},t:{width:"100%",borderCollapse:"collapse",fontSize:10},th:{textAlign:"left",padding:"4px 8px",background:"#f1f5f9",borderBottom:"1px solid #e2e8f0",fontWeight:600},td:{padding:"4px 8px",borderBottom:"1px solid #f8fafc"}};
   return(
     <div className="pt" style={ps.wrap}>
