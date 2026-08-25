@@ -10,7 +10,8 @@ import {
   clearMustChangePassword,
   getJahreskonten, setJahreskonto, uebertragBerechnen,
   getPositionen, savePosition, deletePosition, getProtokoll,
-  getEinstellungen, saveEinstellungen, getUeKonto,
+  getEinstellungen, saveEinstellungen, deleteEinstellung, getUeKonto,
+  getZusatzrechte, saveZusatzrecht, deleteZusatzrecht,
   createUeberstundenAntrag, getUeberstundenAntraege,
   decideUeberstundenAntrag, deleteUeberstundenAntrag,
 } from "./supabase.js";
@@ -398,10 +399,24 @@ function posLabel(key,geschlecht){
   return p.l[geschlecht||"d"]||p.l.d;
 }
 // Darf "actor" das Profil/den Urlaub von "target" sehen und bearbeiten?
-function canManage(actor,target){
+// Trifft ein Zusatzrecht von "actor" auf "target" zu?
+function zusatzTrifft(rechte,actorId,target,nurBearbeiten){
+  const pi=posInfo(target?.position);
+  return (rechte||[]).some(z=>{
+    if(z.user_id!==actorId)return false;
+    if(nurBearbeiten&&!z.darf_bearbeiten)return false;
+    if(z.ziel_typ==="alle")return true;
+    if(z.ziel_typ==="leitung")return ["alle","sparte","bereich"].includes(pi.scope);
+    if(z.ziel_typ==="sparte")return pi.sparte===z.ziel_wert;
+    if(z.ziel_typ==="bereich")return pi.bereich===z.ziel_wert;
+    return false;
+  });
+}
+function canManage(actor,target,rechte){
   if(!actor||!target)return false;
   if(actor.id===target.id)return true;
   if(actor.role==="admin")return true;
+  if(zusatzTrifft(rechte,actor.id,target,true))return true;
   const a=posInfo(actor.position),z=posInfo(target.position);
   if(a.scope==="alle")return true;                       // Geschäftsleitung
   // Praxis- bzw. Pflegedienstleitung: gesamte eigene Sparte, aber niemals
@@ -411,13 +426,18 @@ function canManage(actor,target){
   return false;
 }
 // Darf "actor" über den Antrag von "target" entscheiden? Der eigene Antrag zählt nicht.
-function darfEntscheiden(actor,target){
+function darfEntscheiden(actor,target,rechte){
   if(!actor||!target)return false;
   // Über den eigenen Antrag entscheidet nur die Geschäftsleitung
   if(actor.id===target.id)return actor.role==="admin"||posInfo(actor.position).scope==="alle";
-  return canManage(actor,target);
+  return canManage(actor,target,rechte);
 }
 // Hat jemand überhaupt Leitungsrechte (über sich selbst hinaus)?
+// Sehen: alles aus canManage plus reine Leserechte
+function canSee(actor,target,rechte){
+  if(canManage(actor,target,rechte))return true;
+  return zusatzTrifft(rechte,actor?.id,target,false);
+}
 function istLeitung(p){
   if(!p)return false;
   if(p.role==="admin")return true;
@@ -513,6 +533,16 @@ function tageBisGeburtstag(iso){
 // Benutzern beim nächsten Anmelden den Hinweis.
 const CHANGELOG=[
   {
+    version:"2026.08.25",
+    datum:"25. August 2026",
+    titel:"Zusatzrechte und Regeln je Bereich",
+    punkte:[
+      "Einzelnen Personen — etwa der Buchhaltung — lassen sich zusätzliche Einblicke geben: für alle Mitarbeiter, nur die Leitungen, eine Sparte oder einen Fachbereich, wahlweise nur lesend oder auch bearbeitend.",
+      "Die Regeln zur Urlaubsplanung gelten jetzt je Geltungsbereich: Die Pflegedienstleitung stellt sie für die Pflege ein, eine Teamleitung für ihren Fachbereich. Bereichsregeln haben Vorrang vor Spartenregeln, diese vor der betrieblichen Vorgabe.",
+      "Beim Anlegen eines Mitarbeiters sind Geschlecht und Position nicht mehr vorbelegt und müssen bewusst gewählt werden.",
+    ],
+  },
+  {
     version:"2026.08.23",
     datum:"23. August 2026",
     titel:"Freizeitausgleich statt Urlaub",
@@ -601,26 +631,18 @@ function neueEintraege(gelesen){
 // ─── Abgabefrist für die Jahresurlaubsplanung ────────────────────────────────
 // Frist und Mindestanteil kommen aus den Betriebseinstellungen; je Mitarbeiter
 // kann davon abgewichen werden (Felder frist_datum und mindest_prozent).
-function fristFuer(planJahr,eins,u){
+// "regeln" ist das Ergebnis von regelnFuer(mitarbeiter)
+function fristFuer(planJahr,regeln,u){
   if(u?.frist_datum){
     const[y,m,d]=String(u.frist_datum).split("-").map(Number);
     return new Date(y,m-1,d,23,59,59);
   }
-  const tag=eins?.frist_tag??30, monat=(eins?.frist_monat??11)-1;
-  return new Date(planJahr-1,monat,tag,23,59,59);
+  return new Date(planJahr-1,(regeln?.frist_monat??11)-1,regeln?.frist_tag??30,23,59,59);
 }
-function mindestAnteil(eins,u){
-  const p=u?.mindest_prozent??eins?.mindest_prozent??90;
-  return Math.max(0,Math.min(100,p))/100;
-}
-// Darf diese Person Überstunden als freie Tage nehmen?
-function ueberstundenErlaubt(eins,u){
-  if(u?.ueberstunden_erlaubt!==null&&u?.ueberstunden_erlaubt!==undefined)
-    return !!u.ueberstunden_erlaubt;
-  return eins?.ueberstunden_erlaubt!==false;
-}
-function fristRest(planJahr,eins,u){
-  const ms=fristFuer(planJahr,eins,u).getTime()-Date.now();
+const mindestAnteil=regeln=>Math.max(0,Math.min(100,regeln?.mindest_prozent??90))/100;
+const ueberstundenErlaubt=regeln=>regeln?.ueberstunden_erlaubt!==false;
+function fristRest(planJahr,regeln,u){
+  const ms=fristFuer(planJahr,regeln,u).getTime()-Date.now();
   if(ms<=0)return null;
   const tage=Math.floor(ms/86400000);
   const stunden=Math.floor((ms%86400000)/3600000);
@@ -720,7 +742,7 @@ export default function App(){
   // Nur Geschäfts-/Praxisleitung und Administratoren sehen alle Bereiche und dürfen umschalten
   const darfBereichFiltern=isAdmin||["alle","sparte"].includes(posInfo(profile?.position).scope);
   // Regeln dürfen Administratoren sowie Geschäfts-, Praxis- und Pflegedienstleitung ändern
-  const darfRegeln=darfBereichFiltern;
+  const darfRegeln=isLeitung;   // Leitungen setzen Regeln für ihren Verantwortungsbereich
 
   // ── Session-Init ──────────────────────────────────────────────────
   // Sitzung abgelaufen? Neuer Kalendertag ODER älter als 24 Stunden → neu anmelden
@@ -1198,10 +1220,25 @@ export default function App(){
     try{setJahreskonten(await getJahreskonten());}catch(e){/* Tabelle evtl. noch nicht angelegt */}
   }
   const [posTick,setPosTick]=useState(0);   // erzwingt Neuaufbau nach Katalogänderung
-  const [einstellungen,setEinstellungen]=useState({
-    frist_tag:30,frist_monat:11,mindest_prozent:90,ueberstunden_erlaubt:true});
+  const REGEL_VORGABE={frist_tag:30,frist_monat:11,mindest_prozent:90,ueberstunden_erlaubt:true};
+  const [regelSaetze,setRegelSaetze]=useState([]);   // je Geltungsbereich
+  const [zusatzrechte,setZusatzrechte]=useState([]);
   async function ladeEinstellungen(){
-    try{const e=await getEinstellungen();if(e)setEinstellungen(e);}catch(e){/* Tabelle evtl. neu */}
+    try{setRegelSaetze(await getEinstellungen()||[]);}catch(e){/* Tabelle evtl. neu */}
+    try{setZusatzrechte(await getZusatzrechte()||[]);}catch(e){}
+  }
+  // Gültige Regeln für eine Person: Bereich → Sparte → global → Vorgabe
+  function regelnFuer(u){
+    const pi=posInfo(u?.position);
+    const finde=g=>regelSaetze.find(r=>r.geltung===g);
+    const satz=finde("bereich:"+pi.bereich)||finde("sparte:"+pi.sparte)||finde("global")||{};
+    return{
+      frist_tag:satz.frist_tag??REGEL_VORGABE.frist_tag,
+      frist_monat:satz.frist_monat??REGEL_VORGABE.frist_monat,
+      mindest_prozent:u?.mindest_prozent??satz.mindest_prozent??REGEL_VORGABE.mindest_prozent,
+      ueberstunden_erlaubt:u?.ueberstunden_erlaubt??satz.ueberstunden_erlaubt??REGEL_VORGABE.ueberstunden_erlaubt,
+      quelle:satz.geltung||"vorgabe",
+    };
   }
   async function ladePositionen(){
     try{
@@ -1320,7 +1357,7 @@ export default function App(){
     }
     const zielProfil=profiles.find(p=>p.id===user_id)||null;
     // Wer den Zielmitarbeiter führen darf, trägt direkt bestätigt ein (eigener Urlaub nicht)
-    const sofortBestaetigt=isAdmin||(user_id!==profile?.id&&canManage(profile,zielProfil));
+    const sofortBestaetigt=isAdmin||(user_id!==profile?.id&&canManage(profile,zielProfil,zusatzrechte));
     // Konfliktcheck (Mitarbeiter)
     if(!sofortBestaetigt){
       // Nur Überschneidungen im eigenen Fachbereich sind relevant
@@ -1427,7 +1464,7 @@ export default function App(){
     const sichtbar=entries.filter(e=>{
       if(e.user_id===session?.user.id)return true;              // eigene immer
       if(e.status!=="confirmed")return false;                    // fremde nur bestätigt
-      return canManage(profile,profiles.find(p=>p.id===e.user_id)); // und nur wenn erlaubt
+      return canSee(profile,profiles.find(p=>p.id===e.user_id),zusatzrechte);
     });
     return sichtbar.filter(e=>imKalenderFilter(profiles.find(p=>p.id===e.user_id)));
   }
@@ -1450,8 +1487,8 @@ export default function App(){
 
   const stateName=BUNDESLAENDER.find(b=>b[0]===bundesland)?.[1]||"";
   const offeneUeAntraege=(ueAntraege||[]).filter(a=>
-    a.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===a.user_id)));
-  const pendingCount=entries.filter(e=>e.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===e.user_id))).length
+    a.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===a.user_id),zusatzrechte));
+  const pendingCount=entries.filter(e=>e.status==="pending"&&darfEntscheiden(profile,profiles.find(p=>p.id===e.user_id),zusatzrechte)).length
     +offeneUeAntraege.length;
 
   if(dbError)return(
@@ -1556,7 +1593,9 @@ export default function App(){
   // bis dahin steht wenigstens das eigene Profil zur Verfügung.
   const pwu=profilesWithEntries();
   // Mitarbeiter, die die angemeldete Person führen darf (inkl. sich selbst)
-  const meineLeute=pwu.filter(u=>canManage(profile,u));
+  const meineLeute=pwu.filter(u=>canSee(profile,u,zusatzrechte));
+  // Nur diese dürfen auch bearbeitet werden
+  const meineBearbeitbaren=pwu.filter(u=>canManage(profile,u,zusatzrechte));
   // Urlaubsanspruch einer Person für ein bestimmtes Jahr
   function kontoFuer(u,jahr){
     if(!u)return{urlaubstage:0,resturlaub:0,eigen:false};
@@ -1634,7 +1673,7 @@ export default function App(){
         <div style={{...S.legend,...(schmal?{marginLeft:0,alignItems:"stretch",width:"100%",gap:4}:{})}}>
           {/* Zeile 1: Mitarbeiterfarben */}
           <div style={{...S.legRow,...(schmal?{flexWrap:"nowrap",overflowX:"auto",justifyContent:"flex-start",gap:10,paddingBottom:2}:{})}}>
-            {pwu.filter(u=>canManage(profile,u)&&imKalenderFilter(u)
+            {pwu.filter(u=>canSee(profile,u,zusatzrechte)&&imKalenderFilter(u)
                 &&u.entries.some(e=>e.status==="confirmed"
                   &&(e.von?.startsWith(String(year))||e.bis?.startsWith(String(year))))).map(u=>(
               <div key={u.id} style={S.legItem}><div style={{...S.legDot,background:u.color}}/><span>{u.vorname}</span></div>
@@ -1807,18 +1846,19 @@ export default function App(){
         {/* Abgabefrist für die Jahresplanung */}
         <FristBanner planJahr={planJahr} tick={fristTick}
           eigene={profile&&!istPauschal(profile)?planungFuer(pwu.find(u=>u.id===session.user.id)||profile,planJahr):null}
-          offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<mindestAnteil(einstellungen,u)):[]}
-          eins={einstellungen} user={pwu.find(u=>u.id===session.user.id)||profile}
+          offeneLeute={isLeitung?meineLeute.filter(u=>!istPauschal(u)&&planungFuer(u,planJahr).anteil<mindestAnteil(regelnFuer(u))):[]}
+          regeln={regelnFuer(pwu.find(u=>u.id===session.user.id)||profile)} user={pwu.find(u=>u.id===session.user.id)||profile}
           istLeitung={isLeitung} darfBereichFiltern={darfBereichFiltern}
           onPlanen={()=>{if(year!==planJahr)setYear(planJahr);setView(isAdmin?"eintraege":"meinurlaub");}}/>
         {view==="kalender"&&<KalView key={"kal"+kalTick} year={year} entries={calEntries()} profiles={profiles} bl={bundesland} showFerien={showFerien} showFeiertage={showFeiertage} onTip={setTooltip} offTip={()=>setTooltip(null)}/>}
         {view==="dashboard"&&<DashView users={isLeitung?meineLeute:(pwu.find(u=>u.id===session.user.id)?pwu.filter(u=>u.id===session.user.id):(profile?[{...profile,entries:entries.filter(e=>e.user_id===session.user.id)}]:[]))} isAdmin={isLeitung} viewer={profile} year={year} refreshKey={dashRefresh} onEdit={u=>setModal({type:"editUser",data:u})} onResetPwForUser={(d)=>setModal({type:"resetPw",data:d})}/>}
-        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} viewer={profile} canDelete={isAdmin}
+        {view==="mitarbeiter"&&isLeitung&&<MitView users={meineLeute} bearbeitbar={meineBearbeitbaren.map(u=>u.id)} viewer={profile} canDelete={isAdmin}
           onPositionen={isAdmin?()=>setModal({type:"positionen"}):null}
           onRegeln={darfRegeln?()=>setModal({type:"einstellungen"}):null}
           onKonto={u=>setModal({type:"uekonto",data:u})}
+          onRechte={(isAdmin||posInfo(profile?.position).scope==="alle")?u=>setModal({type:"rechte",data:u}):null}
           onAdd={()=>setModal({type:"addUser"})} onEdit={u=>setModal({type:"editUser",data:u})} onDelete={async id=>{const u=profiles.find(p=>p.id===id);const nm=u?[u.vorname,u.nachname].filter(Boolean).join(" "):"Dieser Mitarbeiter";if(window.confirm(nm+" wird endgültig gelöscht:\n\n• Zugang (Anmeldung)\n• Profil\n• alle Urlaubseinträge\n\nDas kann nicht rückgängig gemacht werden. Fortfahren?"))await handleDeleteUser(id);}}/>}
-        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canManage(profile,profiles.find(p=>p.id===e.user_id)))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
+        {view==="eintraege"&&isLeitung&&<EintAdmin viewer={profile} rechte={zusatzrechte} darfBereichFiltern={darfBereichFiltern} ueAntraege={ueAntraege.filter(a=>a.user_id!==profile?.id||isAdmin||posInfo(profile?.position).scope==="alle")} onUeEntscheiden={handleUeEntscheiden} entries={entries.filter(e=>canSee(profile,profiles.find(p=>p.id===e.user_id),zusatzrechte))} profiles={profiles} year={pendingJumpYear||year} onStatus={handleSetStatus} onDelete={async(id,note)=>{if(window.confirm("Eintrag wirklich löschen?"))await handleDeleteEntry(id,note);}} onAdd={uid=>setModal({type:"addEntry",data:{userId:uid}})} onEdit={(uid,e)=>setModal({type:"editEntry",data:{userId:uid,entry:e}})}/>}
         {view==="meinurlaub"&&!isAdmin&&<MeinUrlaub user={pwu.find(u=>u.id===session.user.id)||profile} year={year} ueAntraege={ueAntraege} onUeAntrag={handleUeAntrag} onUeZurueck={handleUeZuruecknehmen} onAdd={()=>setModal({type:"addEntry",data:{userId:session.user.id}})} onEdit={e=>setModal({type:"editEntry",data:{userId:session.user.id,entry:e}})} onDelete={async(id,note)=>{if(window.confirm("Antrag löschen?"))await handleDeleteEntry(id,note);}} onRequestChange={e=>setModal({type:"changeRequest",data:{entry:e}})} onRequestDelete={e=>setModal({type:"deleteRequest",data:{entry:e}})}/>}
         {view==="hilfe"&&<HilfeView user={profile} istLeitung={isLeitung} isAdmin={isAdmin}/>}
         {view==="protokoll"&&isAdmin&&<ProtokollView/>}
@@ -1866,10 +1906,22 @@ export default function App(){
         onDone={async(reqId)=>{if(reqId){try{await dismissResetRequest(reqId);}catch(e){}}setDashRefresh(k=>k+1);notify("✅ Passwort zurückgesetzt! Nachricht kopiert.");}}
         onClose={()=>setModal(null)}
       />}
-      {modal?.type==="einstellungen"&&<EinstellungenModal werte={einstellungen}
-        onSpeichern={async w=>{const neu=await saveEinstellungen(w);setEinstellungen(neu);notify("Regeln gespeichert.");}}
+      {modal?.type==="einstellungen"&&<EinstellungenModal
+        saetze={regelSaetze}
+        darfGlobal={isAdmin||posInfo(profile?.position).scope==="alle"}
+        eigeneGeltung={(()=>{
+          const pi=posInfo(profile?.position);
+          if(pi.scope==="sparte")return{wert:"sparte:"+pi.sparte,text:(SPARTEN[pi.sparte]||"Sparte")+" (ganze Sparte)"};
+          if(pi.scope==="bereich")return{wert:"bereich:"+pi.bereich,text:BEREICH_NAME[pi.bereich]||pi.bereich};
+          return{wert:"global",text:"Gesamter Betrieb"};
+        })()}
+        onSpeichern={async(g,w)=>{await saveEinstellungen(g,w);await ladeEinstellungen();notify("Regeln gespeichert.");}}
+        onLoeschen={async g=>{await deleteEinstellung(g);await ladeEinstellungen();notify("Regeln zurückgesetzt.");}}
         onClose={()=>setModal(null)}/>}
       {modal?.type==="uekonto"&&<UeKontoModal user={modal.data} onClose={()=>setModal(null)}/>}
+      {modal?.type==="rechte"&&<ZusatzrechteModal user={modal.data}
+        onGeaendert={async()=>{await ladeEinstellungen();await loadAll(session.user.id);}}
+        onClose={()=>setModal(null)}/>}
       {modal?.type==="positionen"&&<PosVerwaltung profiles={profiles}
         onClose={()=>setModal(null)}
         onGeaendert={async()=>{await ladePositionen();}}/>}
@@ -1922,7 +1974,7 @@ export default function App(){
       {modal?.type==="addEntry"&&<EntryModal title="Urlaubsantrag" year={year} isAdmin={isAdmin} allEntries={entries} currentUserId={session?.user.id}
         bereichVon={bereichVon} zielBereich={bereichVon(modal.data.userId)} zielUserId={modal.data.userId}
         zielUser={pwu.find(u=>u.id===modal.data.userId)}
-        ueErlaubt={ueberstundenErlaubt(einstellungen,pwu.find(u=>u.id===modal.data.userId))}
+        ueErlaubt={ueberstundenErlaubt(regelnFuer(pwu.find(u=>u.id===modal.data.userId)))}
         kontingent={(()=>{
           const u=pwu.find(x=>x.id===modal.data.userId);
           if(!u||istPauschal(u))return null;   // Pauschalkräfte haben kein Kontingent
@@ -2363,7 +2415,7 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
                 </div>
                 <div style={{display:"flex",gap:6}}>
                   <button onClick={()=>printUserPDF(u,year)} style={{...S.icnBtn,background:"#475569",color:"#fff",border:"none"}} title="Urlaub als PDF drucken">🖨</button>
-                  {isAdmin&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}
+                  {isAdmin&&{darfEdit(u.id)&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}}
                 </div>
               </div>
               {istPauschal(u)?(
@@ -2415,9 +2467,9 @@ function DashView({users,isAdmin,viewer,year,onEdit,onResetPwForUser,refreshKey=
 function StatBox({label,val,total,color}){const p=total>0?Math.min(100,Math.round(val/total*100)):0;return(<div style={{background:"#f8faf0",borderRadius:8,padding:"9px 11px",border:"1px solid #edf5ee"}}><div style={{fontSize:10,color:"#5a6b4a",marginBottom:3,fontWeight:600}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#2d3a2e"}}>{fmtT(val)}<span style={{color:"#8aaa5f",fontWeight:400,fontSize:12}}> / {total}</span></div><div style={{marginTop:5,height:4,background:"#d4e6d8",borderRadius:2}}><div style={{height:"100%",width:p+"%",background:color,borderRadius:2}}/></div></div>);}
 function Chip({text,bg,col}){return<span style={{fontSize:11,background:bg,color:col,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap",fontWeight:600}}>{text}</span>;}
 // ─── Countdown und Fortschritt der Jahresplanung ─────────────────────────────
-function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,darfBereichFiltern,eins,user}){
-  const rest=fristRest(planJahr,eins,user);
-  const anteilSoll=mindestAnteil(eins,user);
+function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,darfBereichFiltern,regeln,user}){
+  const rest=fristRest(planJahr,regeln,user);
+  const anteilSoll=mindestAnteil(regeln);
   const erfuellt=eigene?eigene.anteil>=anteilSoll:true;
   const abgelaufen=!rest;
   const [bereich,setBereich]=useState("alle");
@@ -2448,7 +2500,7 @@ function FristBanner({planJahr,eigene,offeneLeute=[],istLeitung,onPlanen,tick,da
       {eigene&&(
         <>
           <div style={{fontSize:13,color:"#5a6b4a",marginBottom:8}}>
-            Bis zum <strong>{fristFuer(planJahr,eins,user).toLocaleDateString("de-DE")}</strong> müssen mindestens {Math.round(anteilSoll*100)} % des
+            Bis zum <strong>{fristFuer(planJahr,regeln,user).toLocaleDateString("de-DE")}</strong> müssen mindestens {Math.round(anteilSoll*100)} % des
             Jahresurlaubs verplant sein. Du hast <strong>{fmtT(eigene.verplant)}</strong> von {fmtT(eigene.anspruch)} Tagen
             eingetragen ({prozent} %){eigene.anspruch>0&&eigene.anteil<anteilSoll
               ? ` — es fehlen noch ${fmtT(Math.max(0,Math.ceil((eigene.anspruch*anteilSoll-eigene.verplant)*2)/2))} Tage.`
@@ -3204,16 +3256,54 @@ function HilfeView({user,istLeitung,isAdmin}){
 }
 
 // ─── Betriebseinstellungen ───────────────────────────────────────────────────
-function EinstellungenModal({werte,onSpeichern,onClose}){
-  const [f,setF]=useState({...werte});
-  const [busy,setBusy]=useState(false);
-  const [fehler,setFehler]=useState("");
+function EinstellungenModal({saetze,eigeneGeltung,darfGlobal,onSpeichern,onLoeschen,onClose}){
   const MONATE=["Januar","Februar","März","April","Mai","Juni","Juli","August",
                 "September","Oktober","November","Dezember"];
+  // Welche Geltungsbereiche darf die angemeldete Person bearbeiten?
+  const auswahl=darfGlobal
+    ?[["global","Gesamter Betrieb"],
+      ...Object.entries(SPARTEN).filter(([k])=>k!=="leitung")
+        .map(([k,l])=>["sparte:"+k,l+" (ganze Sparte)"]),
+      ...POSITIONEN.filter(p=>p.bereich&&p.scope==="selbst")
+        .map(p=>["bereich:"+p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
+        .filter((v,i,a)=>a.findIndex(x=>x[0]===v[0])===i)]
+    :[[eigeneGeltung.wert,eigeneGeltung.text]];
+
+  const [geltung,setGeltung]=useState(auswahl[0][0]);
+  const vorhanden=saetze.find(r=>r.geltung===geltung);
+  const geerbt=(()=>{
+    if(geltung==="global")return null;
+    if(geltung.startsWith("bereich:")){
+      const b=geltung.slice(8);
+      const pos=POSITIONEN.find(p=>p.bereich===b);
+      return saetze.find(r=>r.geltung==="sparte:"+pos?.sparte)||saetze.find(r=>r.geltung==="global");
+    }
+    return saetze.find(r=>r.geltung==="global");
+  })();
+  const basis=vorhanden||geerbt||{frist_tag:30,frist_monat:11,mindest_prozent:90,ueberstunden_erlaubt:true};
+
+  const [f,setF]=useState({...basis});
+  useEffect(()=>{
+    const v=saetze.find(r=>r.geltung===geltung);
+    const g=(()=>{
+      if(geltung==="global")return null;
+      if(geltung.startsWith("bereich:")){
+        const b=geltung.slice(8);
+        const pos=POSITIONEN.find(p=>p.bereich===b);
+        return saetze.find(r=>r.geltung==="sparte:"+pos?.sparte)||saetze.find(r=>r.geltung==="global");
+      }
+      return saetze.find(r=>r.geltung==="global");
+    })();
+    setF({...(v||g||{frist_tag:30,frist_monat:11,mindest_prozent:90,ueberstunden_erlaubt:true})});
+  },[geltung,saetze]);
+
+  const [busy,setBusy]=useState(false);
+  const [fehler,setFehler]=useState("");
+
   async function speichern(){
     setBusy(true);setFehler("");
     try{
-      await onSpeichern({
+      await onSpeichern(geltung,{
         frist_tag:parseInt(f.frist_tag)||30,
         frist_monat:parseInt(f.frist_monat)||11,
         mindest_prozent:Math.max(0,Math.min(100,parseInt(f.mindest_prozent)||0)),
@@ -3223,9 +3313,17 @@ function EinstellungenModal({werte,onSpeichern,onClose}){
     }catch(e){setFehler(e.message);}
     finally{setBusy(false);}
   }
+  async function zuruecksetzen(){
+    if(!window.confirm("Eigene Regeln für diesen Bereich löschen? Danach gilt wieder die übergeordnete Vorgabe."))return;
+    setBusy(true);setFehler("");
+    try{await onLoeschen(geltung);onClose();}
+    catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+
   return(
     <div style={S.overlay}>
-      <div style={{...S.modal,maxWidth:520}}>
+      <div style={{...S.modal,maxWidth:540}}>
         <div style={S.mHd}>
           <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
             ⚙️ Regeln für die Urlaubsplanung
@@ -3235,6 +3333,19 @@ function EinstellungenModal({werte,onSpeichern,onClose}){
         <div style={S.mBd}>
           {fehler&&<div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",
             border:"1px solid #fca5a5",borderRadius:6,padding:"8px 10px",marginBottom:12}}>⚠️ {fehler}</div>}
+
+          <div style={{marginBottom:16}}>
+            <label style={S.lbl}>Gilt für</label>
+            <select style={S.inp} value={geltung} onChange={e=>setGeltung(e.target.value)}
+              disabled={auswahl.length===1}>
+              {auswahl.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+            </select>
+            <div style={{fontSize:11.5,color:vorhanden?"#4a6b0f":"#92400e",marginTop:5,lineHeight:1.5}}>
+              {vorhanden
+                ? "✓ Für diesen Bereich sind eigene Regeln hinterlegt."
+                : "Derzeit gilt hier die übergeordnete Vorgabe. Beim Speichern werden eigene Regeln angelegt."}
+            </div>
+          </div>
 
           <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:8,
             textTransform:"uppercase",letterSpacing:"0.05em"}}>Abgabefrist</div>
@@ -3289,15 +3400,19 @@ function EinstellungenModal({werte,onSpeichern,onClose}){
 
           <div style={{fontSize:11.5,color:"#8aaa5f",marginTop:16,paddingTop:12,
             borderTop:"1px solid #edf5ee",lineHeight:1.5}}>
-            Diese Regeln gelten für alle Mitarbeiter. Einzelne Ausnahmen lassen sich
-            im Mitarbeiter-Dialog festlegen.
+            Bereichsregeln haben Vorrang vor Spartenregeln, diese vor der betrieblichen
+            Vorgabe. Einzelne Ausnahmen lassen sich zusätzlich im Mitarbeiter-Dialog festlegen.
           </div>
         </div>
-        <div style={S.mFt}>
+        <div style={{...S.mFt,flexWrap:"wrap"}}>
           <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy} onClick={speichern}>
             {busy?"Speichert…":"Speichern"}
           </button>
-          <button style={S.canBtn} onClick={onClose}>Abbrechen</button>
+          {vorhanden&&geltung!=="global"&&(
+            <button style={{...S.canBtn,color:"#b91c1c",borderColor:"#fca5a5"}}
+              onClick={zuruecksetzen}>Auf Vorgabe zurücksetzen</button>
+          )}
+          <button style={{...S.canBtn,marginLeft:"auto"}} onClick={onClose}>Abbrechen</button>
         </div>
       </div>
     </div>
@@ -3393,10 +3508,151 @@ function UeKontoModal({user,onClose}){
   );
 }
 
+// ─── Zusatzberechtigungen eines Mitarbeiters ─────────────────────────────────
+function ZusatzrechteModal({user,onClose,onGeaendert}){
+  const [liste,setListe]=useState([]);
+  const [laden,setLaden]=useState(true);
+  const [fehler,setFehler]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [neu,setNeu]=useState({ziel_typ:"sparte",ziel_wert:"therapie",darf_bearbeiten:false});
+
+  async function neuLaden(){
+    setLaden(true);
+    try{setListe((await getZusatzrechte()).filter(z=>z.user_id===user.id));}
+    catch(e){setFehler(e.message);}
+    finally{setLaden(false);}
+  }
+  useEffect(()=>{neuLaden();},[user.id]);
+
+  const zieleFuerTyp=typ=>{
+    if(typ==="sparte")return Object.entries(SPARTEN).map(([k,l])=>[k,l]);
+    if(typ==="bereich")return POSITIONEN.filter(p=>p.bereich&&p.scope==="selbst")
+      .map(p=>[p.bereich,BEREICH_NAME[p.bereich]||p.bereich])
+      .filter((v,i,a)=>a.findIndex(x=>x[0]===v[0])===i);
+    return [];
+  };
+  const text=z=>{
+    if(z.ziel_typ==="alle")return "Alle Mitarbeiter";
+    if(z.ziel_typ==="leitung")return "Alle Leitungen";
+    if(z.ziel_typ==="sparte")return "Sparte "+(SPARTEN[z.ziel_wert]||z.ziel_wert);
+    return "Bereich "+(BEREICH_NAME[z.ziel_wert]||z.ziel_wert);
+  };
+
+  async function hinzufuegen(){
+    setBusy(true);setFehler("");
+    try{
+      await saveZusatzrecht({user_id:user.id,ziel_typ:neu.ziel_typ,
+        ziel_wert:["alle","leitung"].includes(neu.ziel_typ)?null:neu.ziel_wert,
+        darf_bearbeiten:!!neu.darf_bearbeiten});
+      await neuLaden(); await onGeaendert();
+    }catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+  async function entfernen(z){
+    if(!window.confirm("Berechtigung „"+text(z)+"“ entfernen?"))return;
+    setBusy(true);
+    try{await deleteZusatzrecht(z.id);await neuLaden();await onGeaendert();}
+    catch(e){setFehler(e.message);}
+    finally{setBusy(false);}
+  }
+
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,maxWidth:560}}>
+        <div style={S.mHd}>
+          <span style={{fontWeight:800,fontSize:16,color:"#2d3a2e",fontFamily:"'Nunito',sans-serif"}}>
+            🔑 Zusatzberechtigungen · {user.vorname} {user.nachname}
+          </span>
+          <button style={S.clsBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.mBd}>
+          <div style={{fontSize:12.5,color:"#5a6b4a",lineHeight:1.55,marginBottom:14}}>
+            Zusätzlich zur Position kann diese Person Einblick in weitere Gruppen erhalten —
+            etwa die Buchhaltung, die alle Urlaube sehen soll, ohne sie zu ändern.
+          </div>
+
+          {fehler&&<div style={{fontSize:12,color:"#b91c1c",background:"#fef2f2",
+            border:"1px solid #fca5a5",borderRadius:6,padding:"8px 10px",marginBottom:12}}>⚠️ {fehler}</div>}
+
+          <div style={{background:"#f8faf0",border:"1.5px solid #d5e8a0",borderRadius:10,
+            padding:12,marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:13,color:"#2d3a2e",marginBottom:9}}>Neue Berechtigung</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div><label style={S.lbl}>Gruppe</label>
+                <select style={S.inp} value={neu.ziel_typ}
+                  onChange={e=>{const t=e.target.value;
+                    setNeu(p=>({...p,ziel_typ:t,ziel_wert:(zieleFuerTyp(t)[0]||[""])[0]}));}}>
+                  <option value="alle">Alle Mitarbeiter</option>
+                  <option value="leitung">Alle Leitungen</option>
+                  <option value="sparte">Eine Sparte</option>
+                  <option value="bereich">Ein Fachbereich</option>
+                </select>
+              </div>
+              {!["alle","leitung"].includes(neu.ziel_typ)&&(
+                <div><label style={S.lbl}>Auswahl</label>
+                  <select style={S.inp} value={neu.ziel_wert}
+                    onChange={e=>setNeu(p=>({...p,ziel_wert:e.target.value}))}>
+                    {zieleFuerTyp(neu.ziel_typ).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <label style={{display:"flex",alignItems:"flex-start",gap:9,fontSize:13,color:"#2d3a2e",
+              cursor:"pointer",fontWeight:600,marginBottom:10}}>
+              <input type="checkbox" checked={!!neu.darf_bearbeiten}
+                onChange={e=>setNeu(p=>({...p,darf_bearbeiten:e.target.checked}))}
+                style={{width:17,height:17,marginTop:2,flexShrink:0}}/>
+              <span>Darf auch bearbeiten
+                <div style={{fontWeight:400,fontSize:11.5,color:"#5a6b4a",marginTop:2}}>
+                  Ohne Haken nur Leserecht: Urlaube und Stammdaten sind sichtbar,
+                  aber nicht änderbar. Anträge kann diese Person dann auch nicht genehmigen.
+                </div>
+              </span>
+            </label>
+            <button style={{...S.savBtn,opacity:busy?0.6:1}} disabled={busy}
+              onClick={hinzufuegen}>+ Hinzufügen</button>
+          </div>
+
+          <div style={{fontSize:12,fontWeight:800,color:"#4a6b0f",marginBottom:8,
+            textTransform:"uppercase",letterSpacing:"0.05em"}}>Vergeben</div>
+          {laden?<div style={{fontSize:13,color:"#8aaa5f"}}>Wird geladen…</div>
+          :liste.length===0?(
+            <div style={{fontSize:12.5,color:"#8aaa5f",background:"#fff",
+              border:"1px dashed #d5e8a0",borderRadius:8,padding:14}}>
+              Keine Zusatzberechtigungen. Es gelten allein die Rechte aus der Position.
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {liste.map(z=>(
+                <div key={z.id} style={{background:"#fff",border:"1px solid #d5e8a0",
+                  borderRadius:8,padding:"9px 11px",display:"flex",alignItems:"center",
+                  gap:9,flexWrap:"wrap"}}>
+                  <strong style={{fontSize:13,color:"#2d3a2e"}}>{text(z)}</strong>
+                  <span style={{fontSize:10,borderRadius:20,padding:"3px 9px",fontWeight:700,
+                    background:z.darf_bearbeiten?"#fef3c7":"#e0f2fe",
+                    color:z.darf_bearbeiten?"#92400e":"#0369a1"}}>
+                    {z.darf_bearbeiten?"✎ Lesen und bearbeiten":"👁 Nur lesen"}
+                  </span>
+                  <button style={{...S.icnBtn,color:"#f87171",marginLeft:"auto"}}
+                    onClick={()=>entfernen(z)}>🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={S.mFt}>
+          <button style={S.canBtn} onClick={onClose}>Schließen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StBadge({status}){const m={confirmed:["✓ Bestätigt","#15803d","#dcfce7"],pending:["⏳ Ausstehend","#92400e","#fef3c7"],rejected:["✗ Abgelehnt","#991b1b","#fee2e2"]};const[t,c,b]=m[status]||["?","#6b8f74","#f0f4f0"];return<span style={{fontSize:10,background:b,color:c,borderRadius:20,padding:"3px 9px",fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${b}`}}>{t}</span>;}
 
 // ─── Mitarbeiter ──────────────────────────────────────────────────────────────
-function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositionen,onRegeln,onKonto}){
+function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositionen,onRegeln,onKonto,onRechte,bearbeitbar=null}){
+  const darfEdit=id=>!bearbeitbar||bearbeitbar.includes(id);
   const schmal=useSchmal();
   const zahlen=u=>{
     const e=u.entries||[];
@@ -3440,7 +3696,8 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
               {pend>0&&<div style={{marginBottom:10}}><Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/></div>}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 <button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onKonto&&onKonto(u)}>⏱ Konto</button>
-                <button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onEdit(u)}>✏️ Bearbeiten</button>
+                {onRechte&&<button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onRechte(u)}>🔑 Rechte</button>}
+                {darfEdit(u.id)&&<button style={{...S.icnBtn,padding:"7px 14px"}} onClick={()=>onEdit(u)}>✏️ Bearbeiten</button>}
                 {canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171",padding:"7px 14px"}} onClick={()=>onDelete(u.id)}>🗑 Löschen</button>}
               </div>
             </div>
@@ -3474,7 +3731,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
                   <td style={S.td}>{istPauschal(u)?<span style={{fontSize:11,color:"#92400e",background:"#fff7ed",borderRadius:10,padding:"2px 8px",fontWeight:600}}>Pauschal</span>:<>{fmtT(urlT)} / {u.urlaubstage||30} T</>}</td>
                   <td style={S.td}>{istPauschal(u)?"—":<>{fmtT(ueT)} / {u.ueberstunden||0} T</>}</td>
                   <td style={S.td}>{pend>0&&<Chip text={`${pend} offen`} bg="#fef3c7" col="#92400e"/>}</td>
-                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} title="Überstundenkonto" onClick={()=>onKonto&&onKonto(u)}>⏱</button><button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
+                  <td style={S.td}><div style={{display:"flex",gap:6}}><button style={S.icnBtn} title="Überstundenkonto" onClick={()=>onKonto&&onKonto(u)}>⏱</button>{onRechte&&<button style={S.icnBtn} title="Zusatzberechtigungen" onClick={()=>onRechte(u)}>🔑</button>}{darfEdit(u.id)&&<button style={S.icnBtn} onClick={()=>onEdit(u)}>✏️</button>}{canDelete&&u.id!==viewer?.id&&<button style={{...S.icnBtn,color:"#f87171"}} onClick={()=>onDelete(u.id)}>🗑</button>}</div></td>
                 </tr>
               );
             })}
@@ -3486,7 +3743,7 @@ function MitView({users,onAdd,onEdit,onDelete,viewer,canDelete=false,onPositione
 }
 
 // ─── Einträge Admin ───────────────────────────────────────────────────────────
-function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern,ueAntraege=[],onUeEntscheiden}){
+function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,darfBereichFiltern,ueAntraege=[],onUeEntscheiden,rechte=[]}){
   const TL={urlaub:"Urlaub",resturlaub:"Resturlaub",ueberstunden:"Freizeitausgleich"};
   const yearStr=String(year);
   const [bereich,setBereich]=useState("alle");
@@ -3551,7 +3808,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
                  </div>}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {showAct&&e.status==="pending"&&(
-                  darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id))?(<>
+                  darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id),rechte)?(<>
                     <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",fontSize:14,padding:"6px 14px"}} onClick={()=>onStatus(e.id,"confirmed")}>✓ Bestätigen</button>
                     <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14,padding:"6px 14px"}} onClick={()=>onStatus(e.id,"rejected")}>✗ Ablehnen</button>
                   </>):<span style={{fontSize:11,color:"#8aaa5f",alignSelf:"center"}}>wartet auf Leitung</span>
@@ -3620,7 +3877,7 @@ function EintAdmin({entries,profiles,year,onStatus,onDelete,onAdd,onEdit,viewer,
                 <td style={S.td}>
                   <div style={{display:"flex",gap:4}}>
                     {showAct&&e.status==="pending"&&<>
-                      {darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id))?(<>
+                      {darfEntscheiden(viewer,profiles.find(p=>p.id===e.user_id),rechte)?(<>
                       <button style={{...S.icnBtn,background:"#dcfce7",color:"#15803d",fontSize:14}} onClick={()=>onStatus(e.id,"confirmed")} title="Bestätigen">✓</button>
                       <button style={{...S.icnBtn,background:"rgba(248,113,113,0.15)",color:"#f87171",fontSize:14}} onClick={()=>onStatus(e.id,"rejected")} title="Ablehnen">✗</button>
                       </>):(<span style={{fontSize:11,color:"#8aaa5f"}} title="Über den eigenen Antrag entscheidet die Praxis- oder Geschäftsleitung.">wartet auf Leitung</span>)}
@@ -4382,7 +4639,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
   const[f,setF]=useState(()=>entwurf?.felder||{
     vorname:initial?.vorname||"",nachname:initial?.nachname||"",
     email:initial?.email||"",role:initial?.role||"mitarbeiter",
-    geschlecht:initial?.geschlecht||"d",
+    geschlecht:initial?.geschlecht||"",
     pauschal:initial?.pauschal??false,
     fronleichnam:initial?.fronleichnam??false,
     frist_datum:initial?.frist_datum||"",
@@ -4390,7 +4647,7 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     ueberstunden_erlaubt:initial?.ueberstunden_erlaubt??null,
     wochenstunden:initial?.wochenstunden??40,
     arbeitstage_woche:initial?.arbeitstage_woche??5,
-    color:initial?.color||PRESET_COLORS[0],position:initial?.position||"trainer",
+    color:initial?.color||PRESET_COLORS[0],position:initial?.position||"",
     geburtsdatum:initial?.geburtsdatum||"",
     einstellungsdatum:initial?.einstellungsdatum||"",
     urlaubstage:String(initial?.urlaubstage??26),
@@ -4437,6 +4694,8 @@ function UserModal({title,initial,isAdmin,onSave,onClose,onResetPw,belegteFarben
     setSaveErr("");
     if(!f.vorname||!f.email){setSaveErr("Vorname und E-Mail sind Pflichtfelder.");return;}
     if(!f.email.includes("@")){setSaveErr("Bitte eine gültige E-Mail-Adresse eingeben.");return;}
+    if(!f.geschlecht){setSaveErr("Bitte das Geschlecht auswählen.");return;}
+    if(!f.position){setSaveErr("Bitte eine Position auswählen.");return;}
     if(!initial&&!newUserPw){setSaveErr("Bitte ein Startpasswort für den neuen Mitarbeiter vergeben.");return;}
     if(!initial&&newUserPw.length<8){setSaveErr("Das Startpasswort muss mindestens 8 Zeichen lang sein.");return;}
     setBusy(true);
@@ -4512,13 +4771,17 @@ Thomas Keilig`;
               <div><label style={S.lbl}>Nachname</label><input style={S.inp} value={f.nachname} onChange={e=>setF(p=>({...p,nachname:e.target.value}))}/></div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <div><label style={S.lbl}>Geschlecht</label>
-                <select style={S.inp} value={f.geschlecht} onChange={e=>setF(p=>({...p,geschlecht:e.target.value}))}>
+              <div><label style={S.lbl}>Geschlecht *</label>
+                <select style={{...S.inp,color:f.geschlecht?"#2d3a2e":"#9ab07a"}} value={f.geschlecht}
+                  onChange={e=>setF(p=>({...p,geschlecht:e.target.value}))}>
+                  <option value="">Bitte wählen …</option>
                   {GESCHLECHTER.map(([k,l])=><option key={k} value={k}>{l}</option>)}
                 </select>
               </div>
-              <div><label style={S.lbl}>Position</label>
-                <select style={S.inp} value={f.position} onChange={e=>setF(p=>({...p,position:e.target.value}))} disabled={!isAdmin}>
+              <div><label style={S.lbl}>Position *</label>
+                <select style={{...S.inp,color:f.position?"#2d3a2e":"#9ab07a"}} value={f.position}
+                  onChange={e=>setF(p=>({...p,position:e.target.value}))} disabled={!isAdmin}>
+                  <option value="">Bitte wählen …</option>
                   {Object.entries(SPARTEN).map(([sp,lbl])=>(
                     <optgroup key={sp} label={lbl}>
                       {POSITIONEN.filter(pos=>pos.sparte===sp).map(pos=>(
@@ -4595,6 +4858,7 @@ Thomas Keilig`;
             )}
             <div style={{fontSize:12,color:"#5a6b4a",background:"#f8faf0",borderRadius:6,padding:"6px 10px",border:"1px solid #d5e8a0"}}>
               {(()=>{
+                if(!f.position)return "Bitte zuerst eine Position auswählen.";
                 const pi=posInfo(f.position);
                 if(pi.scope==="alle")return "🔑 Darf alle Mitarbeiter und Leitungen sehen und bearbeiten.";
                 if(pi.scope==="sparte")return "🔑 Darf alle Mitarbeiter und Teamleitungen der Sparte "+(SPARTEN[pi.sparte]||"–")+" bearbeiten, Urlaub eintragen, genehmigen und ablehnen. Geschäftsleitung und Buchhaltung bleiben unsichtbar.";

@@ -102,17 +102,42 @@ export async function updateProfile(userId, updates) {
 }
 // ─── Betriebseinstellungen ───────────────────────────────────────────
 export async function getEinstellungen() {
-  const { data, error } = await supabase.from("einstellungen").select("*").eq("id", 1).maybeSingle();
+  const { data, error } = await supabase.from("einstellungen").select("*");
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
+export async function saveEinstellungen(geltung, werte) {
+  const { data, error } = await supabase.from("einstellungen")
+    .upsert({ geltung, ...werte, geaendert_am: new Date().toISOString() },
+            { onConflict: "geltung" })
+    .select().single();
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
 }
 
-export async function saveEinstellungen(werte) {
-  const { data, error } = await supabase.from("einstellungen")
-    .update({ ...werte, geaendert_am: new Date().toISOString() })
-    .eq("id", 1).select().single();
+export async function deleteEinstellung(geltung) {
+  const { error } = await supabase.from("einstellungen").delete().eq("geltung", geltung);
+  if (error) throw new Error(friendlyUserError(error.message));
+}
+
+// ─── Zusatzberechtigungen ────────────────────────────────────────────
+export async function getZusatzrechte() {
+  const { data, error } = await supabase.from("zusatzrechte").select("*");
+  if (error) throw new Error(friendlyUserError(error.message));
+  return data || [];
+}
+
+export async function saveZusatzrecht(recht) {
+  const { data, error } = await supabase.from("zusatzrechte")
+    .upsert(recht, { onConflict: "user_id,ziel_typ,ziel_wert" }).select().single();
   if (error) throw new Error(friendlyUserError(error.message));
   return data;
+}
+
+export async function deleteZusatzrecht(id) {
+  const { error } = await supabase.from("zusatzrechte").delete().eq("id", id);
+  if (error) throw new Error(friendlyUserError(error.message));
 }
 
 // ─── Überstundenkonto ────────────────────────────────────────────────
